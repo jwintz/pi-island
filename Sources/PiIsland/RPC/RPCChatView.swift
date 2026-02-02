@@ -10,6 +10,8 @@ struct SessionChatView: View {
     @FocusState private var isInputFocused: Bool
 
     var body: some View {
+        // let _ = print("[DEBUG] SessionChatView rendering: \(session.projectName), messages: \(session.messages.count), isLive: \(session.isLive), phase: \(session.phase)")
+
         VStack(spacing: 0) {
             // Header
             headerView

@@ -1,0 +1,61 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pi-island
+        uses: actions/checkout@v4
+        with:
+          path: pi-island
+
+      - name: Checkout lithos
+        uses: actions/checkout@v4
+        with:
+          repository: jwintz/lithos
+          path: lithos
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: lithos/package-lock.json
+
+      - name: Install lithos dependencies
+        run: npm ci
+        working-directory: lithos
+
+      - name: Build documentation site
+        run: npm run generate -- --vault ../pi-island/vault --output ../pi-island/dist
+        working-directory: lithos
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: pi-island/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

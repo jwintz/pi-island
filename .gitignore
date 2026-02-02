@@ -18,3 +18,7 @@ node_modules/
 # Artifacts
 Pi-Island-*.dmg
 Pi Island.app
+dist/
+
+# Debug logs
+.pi-island-debug.log

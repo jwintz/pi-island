@@ -3,6 +3,24 @@ import OSLog
 
 private let logger = Logger(subsystem: "com.pi-island", category: "SessionManager")
 
+// Debug file logging
+private func debugLog(_ message: String) {
+    let logFile = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi-island-debug.log")
+    let timestamp = ISO8601DateFormatter().string(from: Date())
+    let line = "[\(timestamp)] \(message)\n"
+    if let data = line.data(using: .utf8) {
+        if FileManager.default.fileExists(atPath: logFile.path) {
+            if let handle = try? FileHandle(forWritingTo: logFile) {
+                handle.seekToEndOfFile()
+                handle.write(data)
+                handle.closeFile()
+            }
+        } else {
+            try? data.write(to: logFile)
+        }
+    }
+}
+
 /// Manages multiple Pi RPC sessions
 @MainActor
 @Observable
@@ -18,6 +36,9 @@ class SessionManager {
 
     /// Callback when an external session is updated (for hint animations)
     var onExternalSessionUpdated: ((ManagedSession) -> Void)?
+
+    /// Callback when a session is resumed (old session replaced with new live one)
+    var onSessionResumed: ((_ oldSession: ManagedSession, _ newSession: ManagedSession) -> Void)?
 
     /// File watcher for real-time session updates
     private let fileWatcher = SessionFileWatcher()
@@ -102,6 +123,8 @@ class SessionManager {
     }
 
     /// Resume a historical session by starting a new RPC process with the session file
+    /// This method returns quickly with a session that has messages loaded.
+    /// The RPC connection happens in the background.
     func resumeSession(_ session: ManagedSession) async -> ManagedSession? {
         logger.info("resumeSession called for session \(session.id), isLive=\(session.isLive), sessionFile=\(session.sessionFile ?? "nil")")
 
@@ -120,7 +143,7 @@ class SessionManager {
         // Remove the historical session since we're resuming it
         sessions.removeValue(forKey: session.id)
 
-        // Create a new live session
+        // Create a new live session - starts in .starting phase
         let newSession = ManagedSession(
             id: UUID().uuidString,
             workingDirectory: session.workingDirectory,
@@ -133,7 +156,7 @@ class SessionManager {
             self.onAgentCompleted?(session)
         }
 
-        // Copy messages from historical session
+        // Copy messages from historical session (instant - user sees content immediately)
         newSession.messages = session.messages
         newSession.model = session.model
         newSession.lastActivity = Date()
@@ -144,16 +167,23 @@ class SessionManager {
         // Update the file index to point to the new session
         sessionFileIndex[sessionFile] = newSession.id
 
-        // Start with the session file to resume
-        logger.info("Starting new session with resumeSessionFile: \(sessionFile)")
-        await newSession.start(resumeSessionFile: sessionFile)
-
         // Clean up any remaining duplicates
         cleanupDuplicateSessions()
 
         selectedSessionId = newSession.id
 
-        logger.info("Resumed session from \(sessionFile), messages count: \(newSession.messages.count)")
+        // Notify that session was resumed (so views can update)
+        onSessionResumed?(session, newSession)
+
+        // Start RPC process in background - don't await here!
+        // The session is already visible with messages, RPC connects async
+        Task {
+            logger.info("Starting RPC connection in background for: \(sessionFile)")
+            await newSession.start(resumeSessionFile: sessionFile)
+            logger.info("RPC connection established for: \(sessionFile)")
+        }
+
+        logger.info("Resumed session instantly, messages count: \(newSession.messages.count)")
         return newSession
     }
 
@@ -279,19 +309,27 @@ class SessionManager {
 
     private func handleSessionFileModified(_ url: URL) async {
         let filePath = url.path
+        let modificationDate = Date()
 
-        // First, check if any live session is using this file
-        // (live sessions manage their own state via RPC, skip them)
+        // First, check if any ACTIVE live session is using this file
+        // Only skip if the session is actually connected and streaming
+        // (if it's starting or idle, external updates should still be processed)
         for session in liveSessions {
             if session.sessionFile == filePath {
-                logger.debug("Skipping update for live session file: \(filePath)")
-                return
+                // Only skip if session is actively processing (thinking/executing/streaming)
+                if session.isStreaming || session.phase == .thinking || session.phase == .executing {
+                    logger.debug("Skipping update for live session file: \(filePath)")
+                    return
+                }
             }
         }
 
         // Find the session for this file by path
         if let sessionId = sessionFileIndex[filePath],
            let existingSession = sessions[sessionId] {
+            // Update modification date immediately (for isLikelyThinking/isLikelyExternallyActive)
+            existingSession.fileModificationDate = modificationDate
+
             // Re-parse the file to get updated content
             if let updatedSession = await parseSessionFile(url) {
                 // Update the existing session's data
@@ -299,11 +337,10 @@ class SessionManager {
                 existingSession.messages = updatedSession.messages
                 existingSession.lastActivity = updatedSession.lastActivity
                 existingSession.model = updatedSession.model
-                existingSession.fileModificationDate = updatedSession.fileModificationDate
 
-                // Check if there are new messages
-                if existingSession.messages.count > previousMessageCount {
-                    logger.info("Session \(existingSession.projectName) has new messages (\(previousMessageCount) -> \(existingSession.messages.count))")
+                // Check if there are new messages or content changed
+                if existingSession.messages.count != previousMessageCount {
+                    logger.info("Session \(existingSession.projectName) messages changed (\(previousMessageCount) -> \(existingSession.messages.count))")
                     // Notify for visual hint (external activity)
                     onExternalSessionUpdated?(existingSession)
                 }
@@ -312,14 +349,16 @@ class SessionManager {
             // Unknown file - check if we should add it
             // First, verify no other session already references this file
             let existingByPath = sessions.values.first { $0.sessionFile == filePath }
-            if existingByPath != nil {
-                // Already have this session, just not indexed - fix the index
-                sessionFileIndex[filePath] = existingByPath!.id
+            if let existing = existingByPath {
+                // Already have this session, just not indexed - fix the index and update mod date
+                sessionFileIndex[filePath] = existing.id
+                existing.fileModificationDate = modificationDate
                 return
             }
 
             // Parse and add if it's a genuinely new session
             if let session = await parseSessionFile(url) {
+                session.fileModificationDate = modificationDate
                 sessions[session.id] = session
                 sessionFileIndex[filePath] = session.id
                 logger.info("Added session from modified file: \(session.projectName)")
@@ -401,6 +440,10 @@ class SessionManager {
                 }
             }
 
+            // debugLog("[DEBUG] Loaded \(self.sessions.count) historical sessions")
+            for (id, session) in sessions {
+                // debugLog("[DEBUG]   - \(session.projectName): \(session.messages.count) messages, isLive=\(session.isLive)")
+            }
             logger.info("Loaded \(self.sessions.count) historical sessions")
         } catch {
             logger.error("Error loading sessions: \(error.localizedDescription)")
@@ -474,39 +517,72 @@ class SessionManager {
                     )
                 }
 
-            case "user":
-                if let message = json["message"] as? [String: Any],
-                   let content = message["content"] as? String {
-                    messages.append(RPCMessage(
-                        id: json["id"] as? String ?? UUID().uuidString,
-                        role: .user,
-                        content: content,
-                        timestamp: lastActivity
-                    ))
+            case "message":
+                // Parse the message object
+                guard let messageObj = json["message"] as? [String: Any],
+                      let role = messageObj["role"] as? String else {
+                    continue
                 }
 
-            case "assistant":
-                if let message = json["message"] as? [String: Any],
-                   let contentArray = message["content"] as? [[String: Any]] {
-                    var text = ""
-                    for block in contentArray {
-                        if block["type"] as? String == "text",
-                           let blockText = block["text"] as? String {
-                            text += blockText
+                let messageId = json["id"] as? String ?? UUID().uuidString
+
+                switch role {
+                case "user":
+                    // User content can be string or array
+                    if let contentArray = messageObj["content"] as? [[String: Any]] {
+                        var text = ""
+                        for block in contentArray {
+                            if block["type"] as? String == "text",
+                               let blockText = block["text"] as? String {
+                                text += blockText
+                            }
                         }
-                    }
-                    if !text.isEmpty {
+                        if !text.isEmpty {
+                            messages.append(RPCMessage(
+                                id: messageId,
+                                role: .user,
+                                content: text,
+                                timestamp: lastActivity
+                            ))
+                        }
+                    } else if let content = messageObj["content"] as? String {
                         messages.append(RPCMessage(
-                            id: json["id"] as? String ?? UUID().uuidString,
-                            role: .assistant,
-                            content: text,
+                            id: messageId,
+                            role: .user,
+                            content: content,
                             timestamp: lastActivity
                         ))
                     }
+
+                case "assistant":
+                    if let contentArray = messageObj["content"] as? [[String: Any]] {
+                        var text = ""
+                        for block in contentArray {
+                            if block["type"] as? String == "text",
+                               let blockText = block["text"] as? String {
+                                text += blockText
+                            }
+                        }
+                        if !text.isEmpty {
+                            messages.append(RPCMessage(
+                                id: messageId,
+                                role: .assistant,
+                                content: text,
+                                timestamp: lastActivity
+                            ))
+                        }
+                    }
+
+                case "toolResult":
+                    // Tool results - could parse these if needed
+                    break
+
+                default:
+                    break
                 }
 
             case "tool_use", "tool_result":
-                // Could parse tool calls here
+                // Legacy format - could parse tool calls here
                 break
 
             default:
@@ -533,6 +609,7 @@ class SessionManager {
             session.fileModificationDate = modDate
         }
 
+        // debugLog("[DEBUG] parseSessionFile: \(session.projectName), messages=\(messages.count), path=\(url.lastPathComponent)")
         return session
     }
 }
@@ -567,15 +644,22 @@ class ManagedSession: Identifiable, Equatable {
     var fileModificationDate: Date?
 
     /// Whether this session appears to be active externally (file recently modified)
+    /// This is a cached value updated by the file watcher - no disk I/O in getter
     var isLikelyExternallyActive: Bool {
-        guard !isLive, let path = sessionFile else { return false }
-        // Check current file modification time
-        if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
-           let modDate = attrs[.modificationDate] as? Date {
-            // Consider active if modified within the last 30 seconds
-            return Date().timeIntervalSince(modDate) < 30
-        }
-        return false
+        guard !isLive else { return false }
+        guard let modDate = fileModificationDate else { return false }
+        return Date().timeIntervalSince(modDate) < 30
+    }
+
+    /// Whether this session appears to be waiting for a response (user message without reply)
+    /// This is a cached value - no disk I/O in getter
+    var isLikelyThinking: Bool {
+        guard !isLive else { return false }
+        // Check if the last message is from user (waiting for assistant)
+        guard let lastMessage = messages.last, lastMessage.role == .user else { return false }
+        // And the file was recently modified (within 60 seconds)
+        guard let modDate = fileModificationDate else { return false }
+        return Date().timeIntervalSince(modDate) < 60
     }
 
     // RPC client (only for live sessions)

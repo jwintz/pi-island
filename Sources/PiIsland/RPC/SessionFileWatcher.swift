@@ -2,7 +2,7 @@
 //  SessionFileWatcher.swift
 //  PiIsland
 //
-//  Watches the sessions directory for file changes to enable real-time updates
+//  Watches the sessions directory for file changes using FSEvents for real-time updates
 //
 
 import Foundation
@@ -10,7 +10,25 @@ import OSLog
 
 private let logger = Logger(subsystem: "com.pi-island", category: "SessionFileWatcher")
 
-/// Watches the Pi sessions directory for changes
+// Debug file logging
+private func debugLog(_ message: String) {
+    let logFile = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi-island-debug.log")
+    let timestamp = ISO8601DateFormatter().string(from: Date())
+    let line = "[\(timestamp)] [FSEvents] \(message)\n"
+    if let data = line.data(using: .utf8) {
+        if FileManager.default.fileExists(atPath: logFile.path) {
+            if let handle = try? FileHandle(forWritingTo: logFile) {
+                handle.seekToEndOfFile()
+                handle.write(data)
+                handle.closeFile()
+            }
+        } else {
+            try? data.write(to: logFile)
+        }
+    }
+}
+
+/// Watches the Pi sessions directory for changes using FSEvents
 @MainActor
 final class SessionFileWatcher {
     /// Callback when a session file is created
@@ -24,11 +42,9 @@ final class SessionFileWatcher {
 
     // MARK: - Private
 
-    private var directorySource: DispatchSourceFileSystemObject?
-    private var fileDescriptor: Int32 = -1
+    private var eventStream: FSEventStreamRef?
     private var isWatching = false
-    private var knownFiles: [String: Date] = [:]
-    private var pollTimer: Timer?
+    private var knownFiles: [String: (date: Date, size: UInt64)] = [:]
 
     private let sessionsDirectory: URL
 
@@ -54,121 +70,127 @@ final class SessionFileWatcher {
         // Scan initial state
         scanDirectory()
 
-        // Set up directory monitoring using DispatchSource
-        setupDirectoryWatch()
-
-        // Also set up a polling timer for deeper file change detection
-        // (DispatchSource only detects directory-level changes, not file content changes)
-        setupPollingTimer()
+        // Set up FSEvents stream
+        setupFSEventsStream()
 
         isWatching = true
-        logger.info("Started watching sessions directory")
+        logger.info("Started watching sessions directory with FSEvents")
     }
 
     /// Stop watching
     func stopWatching() {
-        pollTimer?.invalidate()
-        pollTimer = nil
-
-        directorySource?.cancel()
-        directorySource = nil
-
-        if fileDescriptor >= 0 {
-            close(fileDescriptor)
-            fileDescriptor = -1
+        if let stream = eventStream {
+            FSEventStreamStop(stream)
+            FSEventStreamInvalidate(stream)
+            FSEventStreamRelease(stream)
+            eventStream = nil
         }
 
         isWatching = false
         logger.info("Stopped watching sessions directory")
     }
 
-    // MARK: - Directory Watching
+    // MARK: - FSEvents Setup
 
-    private func setupDirectoryWatch() {
-        fileDescriptor = open(sessionsDirectory.path, O_EVTONLY)
-        guard fileDescriptor >= 0 else {
-            logger.error("Failed to open directory for monitoring")
+    private func setupFSEventsStream() {
+        let pathsToWatch = [sessionsDirectory.path] as CFArray
+
+        // Context to pass self to the callback
+        var context = FSEventStreamContext(
+            version: 0,
+            info: Unmanaged.passUnretained(self).toOpaque(),
+            retain: nil,
+            release: nil,
+            copyDescription: nil
+        )
+
+        // Create the stream with low latency for real-time updates
+        guard let stream = FSEventStreamCreate(
+            nil,
+            fsEventsCallback,
+            &context,
+            pathsToWatch,
+            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
+            0.1,  // 100ms latency - very responsive
+            UInt32(kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagFileEvents)
+        ) else {
+            logger.error("Failed to create FSEvents stream")
             return
         }
 
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fileDescriptor,
-            eventMask: [.write, .delete, .rename, .extend],
-            queue: .main
-        )
-
-        source.setEventHandler { [weak self] in
-            Task { @MainActor in
-                self?.handleDirectoryChange()
-            }
-        }
-
-        source.setCancelHandler { [weak self] in
-            if let fd = self?.fileDescriptor, fd >= 0 {
-                close(fd)
-                self?.fileDescriptor = -1
-            }
-        }
-
-        source.resume()
-        directorySource = source
-    }
-
-    private func setupPollingTimer() {
-        // Poll every 1 second for file content changes
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.checkForFileChanges()
-            }
-        }
+        eventStream = stream
+        FSEventStreamSetDispatchQueue(stream, DispatchQueue.main)
+        FSEventStreamStart(stream)
     }
 
     // MARK: - Change Detection
 
-    private func handleDirectoryChange() {
-        checkForFileChanges()
+    fileprivate func handleFSEvent(paths: [String], flags: [UInt32]) {
+        for (index, path) in paths.enumerated() {
+            let flag = flags[index]
+
+            // Only process .jsonl files
+            guard path.hasSuffix(".jsonl") else { continue }
+
+            let url = URL(fileURLWithPath: path)
+
+            // Check event type
+            let isRemoved = (flag & UInt32(kFSEventStreamEventFlagItemRemoved)) != 0
+            let isCreated = (flag & UInt32(kFSEventStreamEventFlagItemCreated)) != 0
+            let isModified = (flag & UInt32(kFSEventStreamEventFlagItemModified)) != 0
+            let isRenamed = (flag & UInt32(kFSEventStreamEventFlagItemRenamed)) != 0
+            let isInodeMetaMod = (flag & UInt32(kFSEventStreamEventFlagItemInodeMetaMod)) != 0
+            let isXattrMod = (flag & UInt32(kFSEventStreamEventFlagItemXattrMod)) != 0
+
+            // Treat inode/xattr changes as potential modifications too
+            let isPotentiallyModified = isModified || isInodeMetaMod || isXattrMod
+
+            if isRemoved {
+                if knownFiles[path] != nil {
+                    knownFiles.removeValue(forKey: path)
+                    logger.debug("Session file deleted: \(path)")
+                    onSessionDeleted?(url)
+                }
+            } else if isCreated || isRenamed {
+                // Check if file exists and is new to us
+                if let attrs = fileAttributes(at: path) {
+                    if knownFiles[path] == nil {
+                        knownFiles[path] = attrs
+                        logger.debug("Session file created: \(path)")
+                        onSessionCreated?(url)
+                    }
+                }
+            } else if isPotentiallyModified {
+                // Check if file actually changed (size or date)
+                if let attrs = fileAttributes(at: path) {
+                    let known = knownFiles[path]
+                    if known == nil || attrs.date > known!.date || attrs.size != known!.size {
+                        knownFiles[path] = attrs
+                        logger.debug("Session file modified: \(path)")
+                        onSessionModified?(url)
+                    }
+                }
+            }
+        }
     }
 
-    private func checkForFileChanges() {
-        let currentFiles = scanSessionFiles()
-
-        // Check for new files
-        for (path, modDate) in currentFiles {
-            if knownFiles[path] == nil {
-                // New file
-                logger.info("New session file detected: \(path)")
-                onSessionCreated?(URL(fileURLWithPath: path))
-            } else if let oldDate = knownFiles[path], modDate > oldDate {
-                // Modified file
-                logger.info("Session file modified: \(path)")
-                onSessionModified?(URL(fileURLWithPath: path))
-            }
+    private func fileAttributes(at path: String) -> (date: Date, size: UInt64)? {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let modDate = attrs[.modificationDate] as? Date,
+              let size = attrs[.size] as? UInt64 else {
+            return nil
         }
-
-        // Check for deleted files
-        for path in knownFiles.keys {
-            if currentFiles[path] == nil {
-                logger.info("Session file deleted: \(path)")
-                onSessionDeleted?(URL(fileURLWithPath: path))
-            }
-        }
-
-        knownFiles = currentFiles
+        return (modDate, size)
     }
 
     private func scanDirectory() {
-        knownFiles = scanSessionFiles()
-        logger.info("Scanned \(self.knownFiles.count) session files")
-    }
-
-    private func scanSessionFiles() -> [String: Date] {
-        var files: [String: Date] = [:]
+        knownFiles = [:]
 
         guard let projectDirs = try? FileManager.default.contentsOfDirectory(
             at: sessionsDirectory,
             includingPropertiesForKeys: [.isDirectoryKey]
         ) else {
-            return files
+            return
         }
 
         for projectDir in projectDirs {
@@ -176,17 +198,45 @@ final class SessionFileWatcher {
 
             if let sessionFiles = try? FileManager.default.contentsOfDirectory(
                 at: projectDir,
-                includingPropertiesForKeys: [.contentModificationDateKey]
+                includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey]
             ) {
                 for file in sessionFiles where file.pathExtension == "jsonl" {
-                    if let attrs = try? FileManager.default.attributesOfItem(atPath: file.path),
-                       let modDate = attrs[.modificationDate] as? Date {
-                        files[file.path] = modDate
+                    if let attrs = fileAttributes(at: file.path) {
+                        knownFiles[file.path] = attrs
                     }
                 }
             }
         }
 
-        return files
+        logger.info("Scanned \(self.knownFiles.count) session files")
+    }
+}
+
+// MARK: - FSEvents Callback
+
+private func fsEventsCallback(
+    streamRef: ConstFSEventStreamRef,
+    clientCallBackInfo: UnsafeMutableRawPointer?,
+    numEvents: Int,
+    eventPaths: UnsafeMutableRawPointer,
+    eventFlags: UnsafePointer<FSEventStreamEventFlags>,
+    eventIds: UnsafePointer<FSEventStreamEventId>
+) {
+    guard let info = clientCallBackInfo else { return }
+
+    let watcher = Unmanaged<SessionFileWatcher>.fromOpaque(info).takeUnretainedValue()
+
+    // Convert paths
+    guard let paths = unsafeBitCast(eventPaths, to: NSArray.self) as? [String] else { return }
+
+    // Convert flags to array
+    var flags: [UInt32] = []
+    for i in 0..<numEvents {
+        flags.append(eventFlags[i])
+    }
+
+    // Dispatch to main actor
+    Task { @MainActor in
+        watcher.handleFSEvent(paths: paths, flags: flags)
     }
 }

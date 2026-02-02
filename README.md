@@ -80,17 +80,38 @@ This generates `Pi Island.app` with:
 
 ### Creating a DMG for Distribution
 
+To distribute the app with proper codesigning (to avoid Gatekeeper warnings), you should sign it with a Developer ID Application certificate and notarize it with Apple.
+
+Find your signing identity:
+```bash
+security find-identity -p codesigning -v
+```
+
+Build and sign:
 ```bash
 # Build + ad-hoc sign + create DMG (for local/trusted distribution)
 ./scripts/bundle.sh --sign --dmg
 
 # Build + sign with Developer ID + create DMG (for public distribution)
-./scripts/bundle.sh --sign-id "Developer ID Application: Your Name" --dmg
+./scripts/bundle.sh --sign-id "Developer ID Application: Julien Wintz (TEAM_ID)" --dmg
 ```
 
-This creates `Pi-Island-0.1.0.dmg` with the app and Applications shortcut.
+This creates `Pi-Island-0.1.0.dmg`. To completely remove the "Apple could not verify..." warning for other users, you must notarize the DMG:
 
-**Note:** Without a Developer ID certificate, recipients may see "damaged" error. They can bypass this by running:
+```bash
+export APPLE_ID="your@email.com"
+export APPLE_PASSWORD="app-specific-password"
+export APPLE_TEAM_ID="YOUR_TEAM_ID"
+
+./scripts/notarize.sh Pi-Island-0.1.0.dmg
+```
+
+You can verify the result with:
+```bash
+spctl -a -vv -t install "Pi-Island-0.1.0.dmg"
+```
+
+**Note:** Without a Developer ID certificate and notarization, recipients may see a "damaged" error or a security warning. They can bypass this by right-clicking the app and selecting **Open**, or by running:
 ```bash
 xattr -cr "/Applications/Pi Island.app"
 ```

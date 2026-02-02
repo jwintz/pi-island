@@ -7,6 +7,7 @@
 
 import SwiftUI
 import ServiceManagement
+import Combine
 
 // Corner radius constants
 private let cornerRadiusInsets = (
@@ -18,6 +19,7 @@ struct NotchView: View {
     @ObservedObject var viewModel: NotchViewModel
     @State private var isVisible: Bool = false
     @State private var isHovering: Bool = false
+    @State private var activityCheckTrigger: Int = 0  // Triggers re-evaluation of hasActivity
 
     // MARK: - Sizing
 
@@ -133,6 +135,10 @@ struct NotchView: View {
         .onChange(of: viewModel.sessionManager.liveSessions) { _, sessions in
             handleSessionsChange(sessions)
         }
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+            // Periodically re-evaluate activity state for external sessions
+            activityCheckTrigger += 1
+        }
     }
 
     // MARK: - Notch Layout
@@ -163,9 +169,18 @@ struct NotchView: View {
     // MARK: - Header Row
 
     private var hasActivity: Bool {
-        viewModel.sessionManager.liveSessions.contains { session in
+        // This depends on activityCheckTrigger to force re-evaluation
+        _ = activityCheckTrigger
+
+        // Check live sessions for thinking/executing
+        let liveActivity = viewModel.sessionManager.liveSessions.contains { session in
             session.phase == .thinking || session.phase == .executing
         }
+        // Check historical sessions for likely thinking (terminal pi)
+        let externalActivity = viewModel.sessionManager.historicalSessions.contains { session in
+            session.isLikelyThinking
+        }
+        return liveActivity || externalActivity
     }
 
     private var isHintState: Bool {
@@ -509,16 +524,18 @@ struct SessionsListView: View {
     }
 
     private func resumeHistoricalSession(_ session: ManagedSession) {
+        // print("[DEBUG] resumeHistoricalSession: \(session.projectName), messages: \(session.messages.count)")
+
+        // Immediately show the session (provides instant feedback)
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            viewModel.showChat(for: session)
+        }
+
+        // Resume in background - the session will update to live state
         Task {
-            // Resume the session and wait for it to be live
-            if let resumed = await sessionManager.resumeSession(session) {
-                await MainActor.run {
-                    // Show the live, interactive session
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        viewModel.showChat(for: resumed)
-                    }
-                }
-            }
+            // print("[DEBUG] Starting resume task...")
+            let resumed = await sessionManager.resumeSession(session)
+            // print("[DEBUG] Resume complete: \(resumed?.projectName ?? "nil"), messages: \(resumed?.messages.count ?? 0)")
         }
     }
 }
@@ -566,7 +583,12 @@ struct SessionRowView: View {
     }
 
     private var phaseColor: Color {
-        // Check for externally active sessions first
+        // Check for externally thinking sessions first (terminal pi)
+        if session.isLikelyThinking {
+            return .blue  // Thinking
+        }
+
+        // Check for externally active sessions
         if session.isLikelyExternallyActive {
             return .yellow
         }

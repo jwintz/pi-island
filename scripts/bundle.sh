@@ -14,7 +14,7 @@ set -e
 
 # Configuration
 APP_NAME="Pi Island"
-BUNDLE_ID="com.pi-island"
+BUNDLE_ID="me.jwintz.pi-island"
 EXECUTABLE="PiIsland"
 VERSION="0.1.0"
 
@@ -244,6 +244,11 @@ if [ "$CREATE_DMG" = true ]; then
         "$DMG_PATH"
 
     rm -rf "$DMG_TEMP"
+
+    if [ "$SIGN_APP" = true ] && [ -n "$SIGN_IDENTITY" ]; then
+        echo "Signing DMG..."
+        codesign --force --sign "$SIGN_IDENTITY" "$DMG_PATH"
+    fi
 
     echo "Created: $DMG_PATH"
 fi
