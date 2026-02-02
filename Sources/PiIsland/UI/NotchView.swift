@@ -75,6 +75,7 @@ struct NotchView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
+            // Outer container does NOT receive hits - only the notch content does
             VStack(spacing: 0) {
                 notchLayout
                     .frame(
@@ -146,14 +147,14 @@ struct NotchView: View {
     @ViewBuilder
     private var notchLayout: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header row - always present
+            // Header row - always present, matches physical notch height
             headerRow
-                .frame(height: max(24, viewModel.closedNotchSize.height))
+                .frame(height: viewModel.closedNotchSize.height)
 
-            // Content only when opened
+            // Main content only when opened
             if viewModel.status == .opened {
                 contentView
-                    .frame(width: notchSize.width - 24)
+                    .frame(width: notchSize.width - 24, height: notchSize.height - viewModel.closedNotchSize.height - 24)
                     .transition(
                         .asymmetric(
                             insertion: .scale(scale: 0.8, anchor: .top)
@@ -194,30 +195,34 @@ struct NotchView: View {
             HStack(spacing: 4) {
                 PiLogo(size: 14, isAnimating: hasActivity, isPulsing: isHintState)
             }
-            .frame(width: viewModel.status == .opened ? nil : sideWidth)
+            .frame(width: viewModel.status == .opened ? sideWidth : sideWidth, alignment: .center)
             .padding(.leading, viewModel.status == .opened ? 8 : 0)
 
             // Center
             if viewModel.status == .opened {
                 openedHeaderContent
             } else {
-                // Closed/Hint: black spacer
+                // Closed/Hint: black spacer with constrained width
                 Rectangle()
                     .fill(.black)
-                    .frame(width: viewModel.closedNotchSize.width - cornerRadiusInsets.closed.top)
+                    .frame(width: max(0, viewModel.closedNotchSize.width - (sideWidth * 2)))
             }
 
-            // Right side - spinner when processing
+            // Right side - spinner when processing, placeholder otherwise
             if hasActivity {
                 ProcessingSpinner()
-                    .frame(width: viewModel.status == .opened ? 20 : sideWidth)
+                    .frame(width: sideWidth, alignment: .center)
+            } else {
+                Color.clear
+                    .frame(width: sideWidth)
             }
         }
         .frame(height: viewModel.closedNotchSize.height)
     }
 
     private var sideWidth: CGFloat {
-        max(0, viewModel.closedNotchSize.height - 12) + 10
+        // Fixed width for side elements (logo and spinner)
+        28
     }
 
     // MARK: - Opened Header Content
@@ -225,8 +230,8 @@ struct NotchView: View {
     @ViewBuilder
     private var openedHeaderContent: some View {
         HStack(spacing: 8) {
-            // Back button when in chat or settings
-            if case .chat = viewModel.contentType {
+            // Left Side: Navigation (Back Button)
+            if case .chat(let session) = viewModel.contentType {
                 Button {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                         viewModel.exitChat()
@@ -236,7 +241,7 @@ struct NotchView: View {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 9, weight: .semibold))
                         Text("Sessions")
-                            .font(.system(size: 10, weight: .medium))
+                            .font(.system(size: 11, weight: .medium))
                     }
                     .foregroundStyle(.white.opacity(0.5))
                     .padding(.horizontal, 6)
@@ -246,19 +251,33 @@ struct NotchView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-            }
 
-            Spacer()
+                // Center: Spacer deals with the physical notch
+                Spacer(minLength: 160)
 
-            // Settings button when showing sessions
-            if case .sessions = viewModel.contentType {
+                // Right Side: Model Selector
+                if session.isLive {
+                    ModelSelectorButton(session: session)
+                } else if let model = session.model {
+                     Text(model.displayName)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.5))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 4)
+                        .background(Color.white.opacity(0.08))
+                        .clipShape(.rect(cornerRadius: 6))
+                }
+            } else if case .sessions = viewModel.contentType {
+                Spacer()
+
+                // Settings button when showing sessions
                 Button {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                         viewModel.showSettings()
                     }
                 } label: {
                     Image(systemName: "gearshape.fill")
-                        .font(.system(size: 12))
+                        .font(.system(size: 14))
                         .foregroundStyle(.white.opacity(0.5))
                         .frame(width: 28, height: 28)
                         .background(Color.white.opacity(0.08))
@@ -266,8 +285,9 @@ struct NotchView: View {
                 }
                 .buttonStyle(.plain)
                 .contentShape(Rectangle())
+            } else {
+                Spacer()
             }
-
         }
         .padding(.leading, 4)
     }
@@ -346,7 +366,7 @@ struct SettingsContentView: View {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 10, weight: .semibold))
                         Text("Back")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: 12, weight: .medium)) // Increased from 11
                     }
                     .foregroundStyle(.white.opacity(0.7))
                 }
@@ -355,7 +375,7 @@ struct SettingsContentView: View {
                 Spacer()
 
                 Text("Settings")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold)) // Increased from 12
                     .foregroundStyle(.white)
 
                 Spacer()
@@ -466,35 +486,37 @@ private struct SettingsToggleRow: View {
 
 struct SessionsListView: View {
     @ObservedObject var viewModel: NotchViewModel
-    var sessionManager: SessionManager
+    @Bindable var sessionManager: SessionManager
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Header
             HStack {
                 Text("Sessions")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white)
 
                 Spacer()
 
                 Text("\(sessionManager.liveSessions.count) active")
-                    .font(.system(size: 10))
+                    .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.5))
             }
+            .padding(.horizontal, 16)
 
             Divider()
                 .background(Color.white.opacity(0.1))
+                .padding(.horizontal, 16)
 
+            // Normal scroll - sessions at top
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(spacing: 6) {
-                    // Live sessions
+                    // Live sessions first (at top)
                     ForEach(sessionManager.liveSessions) { session in
                         SessionRowView(session: session, isSelected: session.id == sessionManager.selectedSessionId)
+                            .padding(.horizontal, 16)
                             .onTapGesture {
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                    viewModel.showChat(for: session)
-                                }
+                                viewModel.showChat(for: session)
                             }
                     }
 
@@ -504,19 +526,24 @@ struct SessionsListView: View {
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.white.opacity(0.4))
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 16)
                             .padding(.top, 8)
 
                         ForEach(sessionManager.historicalSessions.prefix(5)) { session in
                             SessionRowView(session: session, isSelected: false)
+                                .padding(.horizontal, 16)
                                 .onTapGesture {
                                     resumeHistoricalSession(session)
                                 }
                         }
                     }
                 }
+                .padding(.vertical, 8)
             }
+            .frame(maxHeight: .infinity)
         }
         .padding(.top, 8)
+        .frame(maxHeight: .infinity, alignment: .top)
         .onAppear {
             // Refresh session list when view appears
             sessionManager.refreshSessions()
@@ -534,7 +561,7 @@ struct SessionsListView: View {
         // Resume in background - the session will update to live state
         Task {
             // print("[DEBUG] Starting resume task...")
-            let resumed = await sessionManager.resumeSession(session)
+            _ = await sessionManager.resumeSession(session)
             // print("[DEBUG] Resume complete: \(resumed?.projectName ?? "nil"), messages: \(resumed?.messages.count ?? 0)")
         }
     }
@@ -543,29 +570,29 @@ struct SessionsListView: View {
 // MARK: - Session Row View
 
 struct SessionRowView: View {
-    let session: ManagedSession
+    @Bindable var session: ManagedSession
     let isSelected: Bool
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 12) { // Increased spacing
             // Status indicator
             Circle()
                 .fill(phaseColor)
                 .frame(width: 6, height: 6)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(session.projectName)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 13, weight: .medium)) // Increased from 11
                     .foregroundStyle(.white)
                     .lineLimit(1)
 
                 if let model = session.model {
                     Text(model.name ?? model.id)
-                        .font(.system(size: 9))
+                        .font(.system(size: 11)) // Increased from 9
                         .foregroundStyle(.white.opacity(0.5))
                 } else if !session.isLive {
                     Text(formatDate(session.lastActivity))
-                        .font(.system(size: 9))
+                        .font(.system(size: 11)) // Increased from 9
                         .foregroundStyle(.white.opacity(0.4))
                 }
             }
@@ -573,13 +600,13 @@ struct SessionRowView: View {
             Spacer()
 
             Image(systemName: "chevron.right")
-                .font(.system(size: 10))
+                .font(.system(size: 11)) // Increased from 10
                 .foregroundStyle(.white.opacity(0.3))
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(isSelected ? Color.white.opacity(0.1) : Color.white.opacity(0.05))
-        .clipShape(.rect(cornerRadius: 8))
+        .padding(.horizontal, 12) // Increased padding
+        .padding(.vertical, 10)   // Increased padding
+        .background(isSelected ? Color.white.opacity(0.12) : Color.white.opacity(0.06)) // Slightly lighter backgrounds
+        .clipShape(.rect(cornerRadius: 10)) // Smoother corners
     }
 
     private var phaseColor: Color {

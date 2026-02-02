@@ -8,11 +8,11 @@ extension Theme {
     @MainActor static let piIsland = Theme()
         .text {
             ForegroundColor(.white.opacity(0.9))
-            FontSize(11)
+            FontSize(13) // Increased from 11
         }
         .code {
             FontFamilyVariant(.monospaced)
-            FontSize(10)
+            FontSize(11) // Increased from 10
             ForegroundColor(.cyan.opacity(0.9))
         }
         .strong {
@@ -25,28 +25,28 @@ extension Theme {
             configuration.label
                 .markdownTextStyle {
                     FontWeight(.bold)
-                    FontSize(14)
+                    FontSize(15) // Increased from 14
                     ForegroundColor(.white)
                 }
-                .padding(.bottom, 4)
+                .padding(.bottom, 6) // Increased padding
         }
         .heading2 { configuration in
             configuration.label
                 .markdownTextStyle {
                     FontWeight(.semibold)
-                    FontSize(13)
+                    FontSize(14) // Increased from 13
                     ForegroundColor(.white.opacity(0.95))
                 }
-                .padding(.bottom, 3)
+                .padding(.bottom, 4)
         }
         .heading3 { configuration in
             configuration.label
                 .markdownTextStyle {
                     FontWeight(.medium)
-                    FontSize(12)
+                    FontSize(13) // Increased from 12
                     ForegroundColor(.white.opacity(0.9))
                 }
-                .padding(.bottom, 2)
+                .padding(.bottom, 3)
         }
         .paragraph { configuration in
             configuration.label
@@ -160,7 +160,7 @@ struct PiCodeBlockView: View {
     @ViewBuilder
     private func highlightedLine(_ line: String) -> some View {
         Text(attributedLine(line))
-            .font(.system(size: 10, design: .monospaced))
+            .font(.system(size: 11, design: .monospaced)) // Explicit system mono font, size 11
     }
 
     private func attributedLine(_ line: String) -> AttributedString {

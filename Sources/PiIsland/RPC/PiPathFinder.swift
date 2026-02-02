@@ -26,12 +26,21 @@ actor PiPathFinder {
             return cached
         }
 
-        // First, try to resolve the shell environment (VSCode-style approach)
+        // Check known locations FIRST to avoid spawning a shell (which can cause a terminal window to flash)
+        logger.info("Checking known locations for pi executable")
+        if let piPath = findPiInKnownLocations() {
+            logger.info("Found pi in known location: \(piPath)")
+            cachedPath = piPath
+            return piPath
+        }
+
+        // Fallback: try to resolve the shell environment (VSCode-style approach)
+        // This is slower and might show a terminal window, but captures custom PATHs
+        logger.info("Known locations check failed, attempting shell environment resolution")
         let shellEnv = getShellEnvironment()
 
         if let path = shellEnv["PATH"] {
             logger.info("Resolved shell PATH: \(path)")
-
             // Use 'which' with the resolved PATH to find pi
             if let piPath = findExecutable("pi", inPath: path) {
                 logger.info("Found pi via shell environment: \(piPath)")
@@ -39,13 +48,6 @@ actor PiPathFinder {
                 cachedEnvironment = shellEnv
                 return piPath
             }
-        }
-
-        // Fallback: check known locations directly
-        logger.info("Shell environment resolution didn't find pi, checking known locations")
-        if let piPath = findPiInKnownLocations() {
-            cachedPath = piPath
-            return piPath
         }
 
         logger.error("pi executable not found")

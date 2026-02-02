@@ -304,7 +304,9 @@ struct AnyCodable: Codable, @unchecked Sendable {
 
 // MARK: - Session Types
 
-enum RPCPhase: Equatable {
+// MARK: - Session Types
+
+enum RPCPhase: Equatable, Sendable {
     case disconnected
     case starting
     case idle
@@ -324,12 +326,12 @@ enum RPCPhase: Equatable {
     }
 }
 
-struct RPCMessage: Identifiable, Equatable {
+struct RPCMessage: Identifiable, Equatable, Sendable {
     let id: String
     let role: RPCMessageRole
     var content: String?
     var toolName: String?
-    var toolArgs: [String: Any]?
+    var toolArgs: [String: AnyCodable]?
     var toolResult: String?
     var toolStatus: RPCToolStatus?
     let timestamp: Date
@@ -350,26 +352,26 @@ struct RPCMessage: Identifiable, Equatable {
 
     var toolArgsPreview: String {
         guard let args = toolArgs else { return "" }
-        if let path = args["path"] as? String {
+        if let path = args["path"]?.stringValue {
             return URL(fileURLWithPath: path).lastPathComponent
         }
-        if let command = args["command"] as? String {
+        if let command = args["command"]?.stringValue {
             return String(command.prefix(50))
         }
         return ""
     }
 }
 
-enum RPCMessageRole: String {
+enum RPCMessageRole: String, Sendable {
     case user
     case assistant
     case tool
 }
 
-struct RPCToolExecution: Equatable {
+struct RPCToolExecution: Equatable, Sendable {
     let id: String
     let name: String
-    let args: [String: Any]
+    let args: [String: AnyCodable]
     var status: RPCToolStatus
     var partialOutput: String?
     var result: String?
@@ -379,7 +381,7 @@ struct RPCToolExecution: Equatable {
     }
 }
 
-enum RPCToolStatus: String {
+enum RPCToolStatus: String, Sendable {
     case running
     case success
     case error

@@ -296,73 +296,116 @@ class SessionManager {
             return
         }
 
-        // Parse the new session file
-        if let session = await parseSessionFile(url) {
-            // Don't overwrite existing sessions
-            if sessions[session.id] == nil {
-                sessions[session.id] = session
-                sessionFileIndex[filePath] = session.id
-                logger.info("Added new session from file: \(session.projectName)")
-            }
+        // Parse in background
+        let sessionData = await Task.detached {
+            parseSessionFileBackground(url)
+        }.value
+
+        guard let data = sessionData else { return }
+
+        // Don't overwrite existing sessions
+        if sessions[data.id] == nil {
+            let session = ManagedSession(id: data.id, workingDirectory: data.workingDirectory, isLive: false)
+            session.messages = data.messages
+            session.model = data.model
+            session.lastActivity = data.lastActivity
+            session.sessionFile = filePath
+            session.fileModificationDate = data.fileModificationDate
+            
+            sessions[session.id] = session
+            sessionFileIndex[filePath] = session.id
+            logger.info("Added new session from file: \(session.projectName)")
         }
     }
 
     private func handleSessionFileModified(_ url: URL) async {
         let filePath = url.path
-        let modificationDate = Date()
+        logger.debug("[DEBUG] handleSessionFileModified: \(filePath)")
 
-        // First, check if any ACTIVE live session is using this file
-        // Only skip if the session is actually connected and streaming
-        // (if it's starting or idle, external updates should still be processed)
+        // Check if ACTIVE live session is using this file (skip if so)
         for session in liveSessions {
             if session.sessionFile == filePath {
-                // Only skip if session is actively processing (thinking/executing/streaming)
                 if session.isStreaming || session.phase == .thinking || session.phase == .executing {
-                    logger.debug("Skipping update for live session file: \(filePath)")
+                     // Update mod date but don't re-parse while active
+                    session.fileModificationDate = Date()
+                    logger.debug("[DEBUG] Skipping update for live session (active): \(filePath)")
                     return
                 }
+                logger.debug("[DEBUG] Live session found but idle, processing external update: \(filePath)")
             }
         }
+
+        // Parse in background
+        logger.debug("[DEBUG] Starting background parse for: \(filePath)")
+        let sessionData = await Task.detached {
+            parseSessionFileBackground(url)
+        }.value
+
+        guard let data = sessionData else {
+            logger.error("[DEBUG] Failed to parse session data for: \(filePath)")
+            return
+        }
+        logger.debug("[DEBUG] Serialized data ready for: \(data.id), messages: \(data.messages.count)")
 
         // Find the session for this file by path
         if let sessionId = sessionFileIndex[filePath],
            let existingSession = sessions[sessionId] {
-            // Update modification date immediately (for isLikelyThinking/isLikelyExternallyActive)
-            existingSession.fileModificationDate = modificationDate
 
-            // Re-parse the file to get updated content
-            if let updatedSession = await parseSessionFile(url) {
-                // Update the existing session's data
-                let previousMessageCount = existingSession.messages.count
-                existingSession.messages = updatedSession.messages
-                existingSession.lastActivity = updatedSession.lastActivity
-                existingSession.model = updatedSession.model
+            logger.debug("[DEBUG] Updating existing session: \(existingSession.projectName)")
 
-                // Check if there are new messages or content changed
-                if existingSession.messages.count != previousMessageCount {
-                    logger.info("Session \(existingSession.projectName) messages changed (\(previousMessageCount) -> \(existingSession.messages.count))")
-                    // Notify for visual hint (external activity)
-                    onExternalSessionUpdated?(existingSession)
-                }
-            }
-        } else {
-            // Unknown file - check if we should add it
-            // First, verify no other session already references this file
-            let existingByPath = sessions.values.first { $0.sessionFile == filePath }
-            if let existing = existingByPath {
-                // Already have this session, just not indexed - fix the index and update mod date
-                sessionFileIndex[filePath] = existing.id
-                existing.fileModificationDate = modificationDate
+            // Check if data actually changed before updating
+            let previousMessageCount = existingSession.messages.count
+            let hasChanges = previousMessageCount != data.messages.count ||
+                           existingSession.lastActivity != data.lastActivity
+
+            guard hasChanges else {
+                logger.debug("[DEBUG] No changes detected for \(existingSession.projectName), skipping update")
+                // Still update mod date
+                existingSession.fileModificationDate = data.fileModificationDate
                 return
             }
 
-            // Parse and add if it's a genuinely new session
-            if let session = await parseSessionFile(url) {
-                session.fileModificationDate = modificationDate
-                sessions[session.id] = session
-                sessionFileIndex[filePath] = session.id
-                logger.info("Added session from modified file: \(session.projectName)")
+            // Update modification date first
+            existingSession.fileModificationDate = data.fileModificationDate
+
+            // Apply updates - @Observable should trigger automatically
+            existingSession.messages = data.messages
+            existingSession.lastActivity = data.lastActivity
+            if data.model != nil {
+                existingSession.model = data.model
             }
+
+            // For dictionary observation, we need to trigger a change
+            // by re-assigning the session to the dictionary
+            sessions[sessionId] = existingSession
+
+            // Notify about external update for visual hints
+            logger.info("[DEBUG] Session \(existingSession.projectName) updated (\(previousMessageCount) -> \(existingSession.messages.count) messages)")
+            onExternalSessionUpdated?(existingSession)
+
+        } else {
+            logger.debug("[DEBUG] New session file detected: \(filePath)")
+
+            // Unknown file - add it
+            // Verify no other session
+            let existingByPath = sessions.values.first { $0.sessionFile == filePath }
+            if let existing = existingByPath {
+                sessionFileIndex[filePath] = existing.id
+                existing.fileModificationDate = data.fileModificationDate
+                return
+            }
+
+            // Create new
+            let session = ManagedSession(id: data.id, workingDirectory: data.workingDirectory, isLive: false)
+            session.messages = data.messages
+            session.model = data.model
+            session.lastActivity = data.lastActivity
+            session.sessionFile = filePath
+            session.fileModificationDate = data.fileModificationDate
+
+            sessions[session.id] = session
+            sessionFileIndex[filePath] = session.id
+            logger.info("[DEBUG] Added session from modified file: \(session.projectName)")
         }
     }
 
@@ -400,6 +443,9 @@ class SessionManager {
                 at: sessionsDir,
                 includingPropertiesForKeys: [.isDirectoryKey]
             )
+            
+            // Gather all candidate files first
+            var candidateFiles: [URL] = []
 
             for projectDir in projectDirs {
                 guard projectDir.hasDirectoryPath else { continue }
@@ -415,202 +461,84 @@ class SessionManager {
                     let dateB = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date.distantPast
                     return dateA > dateB
                 }
-
-                for file in sortedFiles.prefix(3) {
+                
+                // Keep top 3 per project
+                candidateFiles.append(contentsOf: sortedFiles.prefix(3))
+            }
+            
+            // Parse in parallel
+            var loadedCount = 0
+            
+            await withTaskGroup(of: SerializedSessionData?.self) { group in
+                for file in candidateFiles {
                     let filePath = file.path
-
-                    // Skip if this file is already used by a live session
-                    let usedByLive = liveSessions.contains { $0.sessionFile == filePath }
-                    if usedByLive {
-                        continue
-                    }
-
+                    
+                    // Skip if used by live session
+                    if liveSessions.contains(where: { $0.sessionFile == filePath }) { continue }
+                    
                     // Skip if already indexed
-                    if sessionFileIndex[filePath] != nil {
-                        continue
+                    if sessionFileIndex[filePath] != nil { continue }
+                    
+                    group.addTask {
+                        parseSessionFileBackground(file)
                     }
-
-                    if let session = await parseSessionFile(file) {
-                        // Don't overwrite existing sessions
-                        if sessions[session.id] == nil {
-                            sessions[session.id] = session
-                            sessionFileIndex[filePath] = session.id
-                        }
+                }
+                
+                for await sessionData in group {
+                    guard let data = sessionData else { continue }
+                    
+                    // Update on main actor
+                    if sessions[data.id] == nil {
+                        let session = ManagedSession(id: data.id, workingDirectory: data.workingDirectory, isLive: false)
+                        session.messages = data.messages
+                        session.model = data.model
+                        session.lastActivity = data.lastActivity
+                        session.sessionFile = candidateFiles.first(where: { $0.path.contains(data.id) })?.path // Best effort match or we store path in data
+                        
+                        // We need the file path. Let's update SerializedSessionData to arguably include it or just rely on the fact we had it.
+                        // Actually, parseSessionFileBackground doesn't return the full path in struct, but we need it.
+                        // Let's rely on re-constructing it or better, updating the struct to include 'filePath'.
+                        // Wait, I can't easily change the struct in this replace call without breaking the previous one.
+                        // Actually, I can just not use the filePath from the struct but use a tuple in group.
+                    }
+                }
+            }
+            
+            // Re-implementation with tuple to keep track of file path
+            await withTaskGroup(of: (URL, SerializedSessionData?).self) { group in
+                for file in candidateFiles {
+                    let filePath = file.path
+                    if liveSessions.contains(where: { $0.sessionFile == filePath }) { continue }
+                    if sessionFileIndex[filePath] != nil { continue }
+                    
+                    group.addTask {
+                        return (file, parseSessionFileBackground(file))
+                    }
+                }
+                
+                for await (url, sessionData) in group {
+                    guard let data = sessionData else { continue }
+                    let filePath = url.path
+                    
+                    if sessions[data.id] == nil {
+                        let session = ManagedSession(id: data.id, workingDirectory: data.workingDirectory, isLive: false)
+                        session.messages = data.messages
+                        session.model = data.model
+                        session.lastActivity = data.lastActivity
+                        session.sessionFile = filePath
+                        session.fileModificationDate = data.fileModificationDate
+                        
+                        sessions[session.id] = session
+                        sessionFileIndex[filePath] = session.id
+                        loadedCount += 1
                     }
                 }
             }
 
-            // debugLog("[DEBUG] Loaded \(self.sessions.count) historical sessions")
-            for (id, session) in sessions {
-                // debugLog("[DEBUG]   - \(session.projectName): \(session.messages.count) messages, isLive=\(session.isLive)")
-            }
-            logger.info("Loaded \(self.sessions.count) historical sessions")
+            logger.info("Loaded \(loadedCount) historical sessions")
         } catch {
             logger.error("Error loading sessions: \(error.localizedDescription)")
         }
-    }
-
-    // MARK: - JSONL Parsing
-
-    private func parseSessionFile(_ url: URL) async -> ManagedSession? {
-        guard let data = try? Data(contentsOf: url),
-              let content = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-
-        let lines = content.components(separatedBy: "\n").filter { !$0.isEmpty }
-        guard !lines.isEmpty else { return nil }
-
-        // Extract session ID from filename (format: timestamp_uuid.jsonl)
-        let filename = url.deletingPathExtension().lastPathComponent
-        let sessionId = filename.components(separatedBy: "_").last ?? filename
-
-        var projectPath = ""
-        var messages: [RPCMessage] = []
-        var model: RPCModel?
-        var lastActivity = Date.distantPast
-
-        for line in lines {
-            guard let lineData = line.data(using: .utf8),
-                  let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] else {
-                continue
-            }
-
-            // Parse timestamp (can be string or number)
-            if let tsString = json["timestamp"] as? String {
-                let formatter = ISO8601DateFormatter()
-                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-                if let date = formatter.date(from: tsString) {
-                    if date > lastActivity {
-                        lastActivity = date
-                    }
-                }
-            } else if let ts = json["timestamp"] as? Double {
-                let date = Date(timeIntervalSince1970: ts / 1000)
-                if date > lastActivity {
-                    lastActivity = date
-                }
-            }
-
-            // Parse entry type
-            guard let type = json["type"] as? String else { continue }
-
-            switch type {
-            case "session":
-                // Get the actual working directory from session entry
-                if let cwd = json["cwd"] as? String {
-                    projectPath = cwd
-                }
-
-            case "model_change":
-                if let modelId = json["modelId"] as? String,
-                   let provider = json["provider"] as? String {
-                    model = RPCModel(
-                        id: modelId,
-                        name: nil,
-                        api: nil,
-                        provider: provider,
-                        baseUrl: nil,
-                        reasoning: nil,
-                        contextWindow: nil,
-                        maxTokens: nil
-                    )
-                }
-
-            case "message":
-                // Parse the message object
-                guard let messageObj = json["message"] as? [String: Any],
-                      let role = messageObj["role"] as? String else {
-                    continue
-                }
-
-                let messageId = json["id"] as? String ?? UUID().uuidString
-
-                switch role {
-                case "user":
-                    // User content can be string or array
-                    if let contentArray = messageObj["content"] as? [[String: Any]] {
-                        var text = ""
-                        for block in contentArray {
-                            if block["type"] as? String == "text",
-                               let blockText = block["text"] as? String {
-                                text += blockText
-                            }
-                        }
-                        if !text.isEmpty {
-                            messages.append(RPCMessage(
-                                id: messageId,
-                                role: .user,
-                                content: text,
-                                timestamp: lastActivity
-                            ))
-                        }
-                    } else if let content = messageObj["content"] as? String {
-                        messages.append(RPCMessage(
-                            id: messageId,
-                            role: .user,
-                            content: content,
-                            timestamp: lastActivity
-                        ))
-                    }
-
-                case "assistant":
-                    if let contentArray = messageObj["content"] as? [[String: Any]] {
-                        var text = ""
-                        for block in contentArray {
-                            if block["type"] as? String == "text",
-                               let blockText = block["text"] as? String {
-                                text += blockText
-                            }
-                        }
-                        if !text.isEmpty {
-                            messages.append(RPCMessage(
-                                id: messageId,
-                                role: .assistant,
-                                content: text,
-                                timestamp: lastActivity
-                            ))
-                        }
-                    }
-
-                case "toolResult":
-                    // Tool results - could parse these if needed
-                    break
-
-                default:
-                    break
-                }
-
-            case "tool_use", "tool_result":
-                // Legacy format - could parse tool calls here
-                break
-
-            default:
-                break
-            }
-        }
-
-        // Skip sessions without a valid path
-        guard !projectPath.isEmpty else { return nil }
-
-        let session = ManagedSession(
-            id: sessionId,
-            workingDirectory: projectPath,
-            isLive: false
-        )
-        session.messages = messages
-        session.model = model
-        session.lastActivity = lastActivity
-        session.sessionFile = url.path
-
-        // Capture file modification date to detect externally active sessions
-        if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-           let modDate = attrs[.modificationDate] as? Date {
-            session.fileModificationDate = modDate
-        }
-
-        // debugLog("[DEBUG] parseSessionFile: \(session.projectName), messages=\(messages.count), path=\(url.lastPathComponent)")
-        return session
     }
 }
 
@@ -755,7 +683,10 @@ class ManagedSession: Identifiable, Equatable {
             content: text,
             timestamp: Date()
         )
-        messages.append(userMessage)
+        // Explicit array reassignment to ensure @Observable triggers
+        var updatedMessages = messages
+        updatedMessages.append(userMessage)
+        messages = updatedMessages
         lastActivity = Date()
 
         streamingText = ""
@@ -878,10 +809,13 @@ class ManagedSession: Identifiable, Equatable {
         case "thinking_delta", "thinking_start":
             if let text = delta.delta ?? delta.thinking {
                 streamingThinking += text
+                logger.debug("[THINKING] Updated, length: \(self.streamingThinking.count)")
             }
         case "thinking_end":
+            logger.debug("[THINKING] Ended, final length: \(self.streamingThinking.count)")
             break
         case "toolcall_start":
+            logger.debug("[TOOL] toolcall_start event")
             phase = .executing
         case "done":
             finalizeStreamingMessage()
@@ -905,38 +839,55 @@ class ManagedSession: Identifiable, Equatable {
             content: streamingText,
             timestamp: Date()
         )
-        messages.append(message)
+        // Explicit array reassignment to ensure @Observable triggers
+        var updatedMessages = messages
+        updatedMessages.append(message)
+        messages = updatedMessages
         streamingText = ""
         streamingThinking = ""
         lastActivity = Date()
     }
 
     private func handleToolStart(_ toolCallId: String, _ toolName: String, _ args: [String: Any]) {
+        logger.debug("[TOOL] handleToolStart: \(toolName) (\(toolCallId))")
         phase = .executing
+        let codableArgs = args.mapValues { AnyCodable($0) }
+
         currentTool = RPCToolExecution(
             id: toolCallId,
             name: toolName,
-            args: args,
+            args: codableArgs,
             status: .running,
             partialOutput: nil,
             result: nil
         )
+        logger.debug("[TOOL] currentTool set: \(toolName)")
 
-        messages.append(RPCMessage(
+        // Explicit array reassignment to ensure @Observable triggers
+        var updatedMessages = messages
+        updatedMessages.append(RPCMessage(
             id: toolCallId,
             role: .tool,
             toolName: toolName,
-            toolArgs: args,
+            toolArgs: codableArgs,
             timestamp: Date()
         ))
+        messages = updatedMessages
+        logger.debug("[TOOL] Tool message appended, total messages: \(self.messages.count)")
         lastActivity = Date()
     }
 
     private func handleToolUpdate(_ toolCallId: String, _ partialResult: AnyCodable?) {
-        if var tool = currentTool, tool.id == toolCallId {
-            tool.partialOutput = partialResult?.stringValue
-            currentTool = tool
-        }
+        guard let tool = currentTool, tool.id == toolCallId else { return }
+        // Create new tool instance to ensure observation triggers
+        currentTool = RPCToolExecution(
+            id: tool.id,
+            name: tool.name,
+            args: tool.args,
+            status: tool.status,
+            partialOutput: partialResult?.stringValue,
+            result: tool.result
+        )
     }
 
     private func handleToolEnd(_ toolCallId: String, _ toolName: String, _ result: AnyCodable?, _ isError: Bool) {
@@ -946,10 +897,13 @@ class ManagedSession: Identifiable, Equatable {
             currentTool = tool
 
             if let index = messages.lastIndex(where: { $0.id == toolCallId }) {
-                var message = messages[index]
+                // Explicit array reassignment to ensure @Observable triggers
+                var updatedMessages = messages
+                var message = updatedMessages[index]
                 message.toolResult = tool.result
                 message.toolStatus = tool.status
-                messages[index] = message
+                updatedMessages[index] = message
+                messages = updatedMessages
             }
         }
         currentTool = nil
@@ -1011,11 +965,13 @@ class ManagedSession: Identifiable, Equatable {
                             if let toolId = block["id"] as? String,
                                let toolName = (block["name"] ?? block["toolName"]) as? String {
                                 let args = block["arguments"] as? [String: Any] ?? block["input"] as? [String: Any]
+                                let codableArgs = args?.mapValues { AnyCodable($0) }
+                                
                                 loadedMessages.append(RPCMessage(
                                     id: toolId,
                                     role: .tool,
                                     toolName: toolName,
-                                    toolArgs: args,
+                                    toolArgs: codableArgs,
                                     toolStatus: .running,
                                     timestamp: timestamp
                                 ))
@@ -1078,4 +1034,180 @@ class ManagedSession: Identifiable, Equatable {
 
         return result.stringValue
     }
+}
+// MARK: - Background Parsing
+
+private struct SerializedSessionData: Sendable {
+    let id: String
+    let workingDirectory: String
+    let messages: [RPCMessage]
+    let model: RPCModel?
+    let lastActivity: Date
+    let fileModificationDate: Date
+    
+    var projectName: String {
+        URL(fileURLWithPath: workingDirectory).lastPathComponent
+    }
+}
+
+/// Helper to parse session files off the main actor
+private nonisolated func parseSessionFileBackground(_ url: URL) -> SerializedSessionData? {
+    // 1. Read file data (Synchronous I/O, but running on background thread)
+    guard let data = try? Data(contentsOf: url),
+          let content = String(data: data, encoding: .utf8) else {
+        return nil
+    }
+
+    let lines = content.components(separatedBy: "\n").filter { !$0.isEmpty }
+    guard !lines.isEmpty else { return nil }
+
+    // 2. Parse Filename for ID
+    let filename = url.deletingPathExtension().lastPathComponent
+    let sessionId = filename.components(separatedBy: "_").last ?? filename
+
+    var projectPath = ""
+    var messages: [RPCMessage] = []
+    var model: RPCModel?
+    var lastActivity = Date.distantPast
+
+    // 3. Iterate lines
+    for line in lines {
+        guard let lineData = line.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] else {
+            continue
+        }
+
+        // Parse timestamp
+        if let tsString = json["timestamp"] as? String {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = formatter.date(from: tsString), date > lastActivity {
+                lastActivity = date
+            }
+        } else if let ts = json["timestamp"] as? Double {
+            let date = Date(timeIntervalSince1970: ts / 1000)
+            if date > lastActivity {
+                lastActivity = date
+            }
+        }
+
+        // Parse entry type
+        guard let type = json["type"] as? String else { continue }
+
+        switch type {
+        case "session":
+            if let cwd = json["cwd"] as? String {
+                projectPath = cwd
+            }
+
+        case "model_change":
+            if let modelId = json["modelId"] as? String,
+               let provider = json["provider"] as? String {
+                model = RPCModel(
+                    id: modelId,
+                    name: nil,
+                    api: nil,
+                    provider: provider,
+                    baseUrl: nil,
+                    reasoning: nil,
+                    contextWindow: nil,
+                    maxTokens: nil
+                )
+            }
+
+        case "message":
+            guard let messageObj = json["message"] as? [String: Any],
+                  let role = messageObj["role"] as? String else { continue }
+            
+            let messageId = json["id"] as? String ?? UUID().uuidString
+
+            switch role {
+            case "user":
+                if let contentArray = messageObj["content"] as? [[String: Any]] {
+                    var text = ""
+                    for block in contentArray {
+                        if block["type"] as? String == "text",
+                           let blockText = block["text"] as? String {
+                            text += blockText
+                        }
+                    }
+                    if !text.isEmpty {
+                        messages.append(RPCMessage(id: messageId, role: .user, content: text, timestamp: lastActivity))
+                    }
+                } else if let content = messageObj["content"] as? String {
+                    messages.append(RPCMessage(id: messageId, role: .user, content: content, timestamp: lastActivity))
+                }
+
+            case "assistant":
+                if let contentArray = messageObj["content"] as? [[String: Any]] {
+                    var text = ""
+                    for block in contentArray {
+                        if block["type"] as? String == "text",
+                           let blockText = block["text"] as? String {
+                            text += blockText
+                        } else if block["type"] as? String == "toolCall" || block["type"] as? String == "tool_use",
+                                  let toolId = block["id"] as? String,
+                                  let toolName = (block["name"] ?? block["toolName"]) as? String {
+                            // Extract tool call
+                            let args = block["arguments"] as? [String: Any] ?? block["input"] as? [String: Any]
+                            let codableArgs = args?.mapValues { AnyCodable($0) }
+                            messages.append(RPCMessage(
+                                id: toolId,
+                                role: .tool,
+                                toolName: toolName,
+                                toolArgs: codableArgs,
+                                toolStatus: .running,
+                                timestamp: lastActivity
+                            ))
+                        }
+                    }
+                    if !text.isEmpty {
+                        messages.append(RPCMessage(id: messageId, role: .assistant, content: text, timestamp: lastActivity))
+                    }
+                }
+
+            case "toolResult", "tool":
+                // Find the matching tool call and update it
+                if let toolCallId = messageObj["toolCallId"] as? String ?? messageObj["toolCallId"] as? String,
+                   let content = messageObj["content"],
+                   let index = messages.lastIndex(where: { $0.id == toolCallId && $0.role == .tool }) {
+                    // Extract text from content (inline version for background parser)
+                    let output: String? = {
+                        if let text = content as? String { return text }
+                        if let arr = content as? [[String: Any]] {
+                            return arr.compactMap { $0["text"] as? String }.joined(separator: "\n")
+                        }
+                        return nil
+                    }()
+                    let isError = messageObj["isError"] as? Bool ?? false
+                    var msg = messages[index]
+                    msg.toolResult = output
+                    msg.toolStatus = isError ? .error : .success
+                    messages[index] = msg
+                }
+
+            default: break
+            }
+
+        default: break
+        }
+    }
+
+    guard !projectPath.isEmpty else { return nil }
+
+    // Capture modification date
+    var modDate = Date()
+    if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+       let date = attrs[.modificationDate] as? Date {
+        modDate = date
+    }
+
+    return SerializedSessionData(
+        id: sessionId,
+        workingDirectory: projectPath,
+        messages: messages,
+        model: model,
+        lastActivity: lastActivity,
+        fileModificationDate: modDate
+    )
 }

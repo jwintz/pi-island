@@ -10,44 +10,48 @@ struct SessionChatView: View {
     @FocusState private var isInputFocused: Bool
 
     var body: some View {
-        // let _ = print("[DEBUG] SessionChatView rendering: \(session.projectName), messages: \(session.messages.count), isLive: \(session.isLive), phase: \(session.phase)")
-
         VStack(spacing: 0) {
             // Header
-            headerView
-
-            Divider()
-                .background(Color.white.opacity(0.1))
-
-            // Messages
+            chatHeader
+            
+            // Messages - inverted scroll, newest at bottom
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach(session.messages) { message in
+                        // Anchor at top (visual bottom due to inversion)
+                        Color.clear.frame(height: 1).id("bottom")
+                        
+                        // Messages in reverse order (oldest first in array, appear at bottom)
+                        ForEach(session.messages.reversed()) { message in
                             MessageRow(message: message)
+                                .padding(.horizontal, 16)
+                                .scaleEffect(x: 1, y: -1)
                         }
 
                         // Streaming thinking
                         if !session.streamingThinking.isEmpty {
                             ThinkingMessageView(text: session.streamingThinking)
+                                .padding(.horizontal, 16)
+                                .scaleEffect(x: 1, y: -1)
                         }
 
                         // Streaming text
                         if !session.streamingText.isEmpty {
                             StreamingMessageView(text: session.streamingText)
+                                .padding(.horizontal, 16)
+                                .scaleEffect(x: 1, y: -1)
                         }
 
                         // Current tool execution
                         if let tool = session.currentTool {
                             ToolExecutionView(tool: tool)
+                                .padding(.horizontal, 16)
+                                .scaleEffect(x: 1, y: -1)
                         }
-
-                        // Scroll anchor
-                        Color.clear.frame(height: 1).id("bottom")
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 12)
                 }
+                .scaleEffect(x: 1, y: -1)
                 .onAppear {
                     // Instant scroll to bottom (no animation)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
@@ -66,59 +70,36 @@ struct SessionChatView: View {
                     proxy.scrollTo("bottom", anchor: .bottom)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             // Input bar (only for live sessions)
             if session.isLive {
                 inputBar
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
             }
         }
+        .frame(maxHeight: .infinity, alignment: .top)
     }
-
-    private var headerView: some View {
-        HStack(spacing: 8) {
-            // Status indicator
+    
+    private var chatHeader: some View {
+        HStack(spacing: 12) {
+            // Status indicator (replaces chevron)
             Circle()
                 .fill(phaseColor)
                 .frame(width: 8, height: 8)
-
-            // Project name
+            
             Text(session.projectName)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.white)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.white.opacity(0.85))
                 .lineLimit(1)
-
+            
             Spacer()
-
-            // Model selector (live) or model badge (historical)
-            if session.isLive {
-                ModelSelectorButton(session: session)
-            } else if let model = session.model {
-                Text(model.displayName)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.5))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 4)
-                    .background(Color.white.opacity(0.08))
-                    .clipShape(.rect(cornerRadius: 6))
-            }
-
-            // Thinking level badge (only for models that support reasoning)
-            if session.isLive, session.model?.reasoning == true {
-                Text(session.thinkingLevel.rawValue)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.5))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 4)
-                    .background(Color.white.opacity(0.08))
-                    .clipShape(.rect(cornerRadius: 6))
-                    .onTapGesture {
-                        Task { await session.cycleThinkingLevel() }
-                    }
-            }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
+
 
     private var inputBar: some View {
         HStack(spacing: 8) {
@@ -165,6 +146,16 @@ struct SessionChatView: View {
     }
 
     private var phaseColor: Color {
+        // Check for externally thinking sessions first (terminal pi)
+        if !session.isLive && session.isLikelyThinking {
+            return .blue
+        }
+        
+        // Check for externally active sessions
+        if !session.isLive && session.isLikelyExternallyActive {
+            return .yellow
+        }
+        
         switch session.phase {
         case .disconnected: return .gray
         case .starting: return .orange
@@ -725,71 +716,14 @@ private struct ToolExecutionView: View {
     }
 
     private var toolPreview: String {
-        if let path = tool.args["path"] as? String {
+        if let path = tool.args["path"]?.stringValue {
             return URL(fileURLWithPath: path).lastPathComponent
         }
-        if let command = tool.args["command"] as? String {
+        if let command = tool.args["command"]?.stringValue {
             return String(command.prefix(50))
         }
         return ""
     }
 }
 
-// MARK: - Model Selector
-
-private struct ModelSelectorButton: View {
-    @Bindable var session: ManagedSession
-
-    var body: some View {
-        Menu {
-            ForEach(sortedProviders, id: \.self) { provider in
-                Section(provider) {
-                    ForEach(modelsForProvider(provider)) { model in
-                        Button(action: { selectModel(model) }) {
-                            HStack {
-                                Text(model.displayName)
-                                if isCurrentModel(model) {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Text(session.model?.displayName ?? "Select Model")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.5))
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.5))
-            }
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-        .background(Color.white.opacity(0.08))
-        .clipShape(.rect(cornerRadius: 6))
-    }
-
-    private var sortedProviders: [String] {
-        session.modelsByProvider.keys.sorted()
-    }
-
-    private func modelsForProvider(_ provider: String) -> [RPCModel] {
-        session.modelsByProvider[provider] ?? []
-    }
-
-    private func isCurrentModel(_ model: RPCModel) -> Bool {
-        guard let current = session.model else { return false }
-        return current.id == model.id && current.provider == model.provider
-    }
-
-    private func selectModel(_ model: RPCModel) {
-        Task {
-            await session.setModel(provider: model.provider, modelId: model.id)
-        }
-    }
-}
+// MARK: - MessageRow

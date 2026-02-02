@@ -105,6 +105,8 @@ final class SessionFileWatcher {
         )
 
         // Create the stream with low latency for real-time updates
+        let flags = UInt32(kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagFileEvents)
+        
         guard let stream = FSEventStreamCreate(
             nil,
             fsEventsCallback,
@@ -112,7 +114,7 @@ final class SessionFileWatcher {
             pathsToWatch,
             FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
             0.1,  // 100ms latency - very responsive
-            UInt32(kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagFileEvents)
+            flags
         ) else {
             logger.error("Failed to create FSEvents stream")
             return

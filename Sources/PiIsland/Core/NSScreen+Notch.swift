@@ -11,8 +11,8 @@ extension NSScreen {
     /// Returns the size of the notch on this screen
     var notchSize: CGSize {
         guard safeAreaInsets.top > 0 else {
-            // Fallback for non-notch displays
-            return CGSize(width: 224, height: 38)
+            // Fallback for non-notch displays - wider to accommodate content
+            return CGSize(width: 320, height: 38)
         }
 
         let notchHeight = safeAreaInsets.top
