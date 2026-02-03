@@ -10,6 +10,81 @@ extension Theme {
             ForegroundColor(.white.opacity(0.9))
             FontSize(13) // Increased from 11
         }
+
+    /// Monospaced version of the Pi Island theme for chat messages
+    @MainActor static let piIslandMonospaced = Theme()
+        .text {
+            ForegroundColor(.white.opacity(0.9))
+            FontSize(11)
+            FontFamilyVariant(.monospaced)
+        }
+        .code {
+            FontFamilyVariant(.monospaced)
+            FontSize(11)
+            ForegroundColor(.cyan.opacity(0.9))
+        }
+        .strong {
+            FontWeight(.semibold)
+        }
+        .link {
+            ForegroundColor(.blue.opacity(0.8))
+        }
+        .heading1 { configuration in
+            configuration.label
+                .markdownTextStyle {
+                    FontWeight(.bold)
+                    FontSize(13)
+                    ForegroundColor(.white)
+                    FontFamilyVariant(.monospaced)
+                }
+                .padding(.bottom, 4)
+        }
+        .heading2 { configuration in
+            configuration.label
+                .markdownTextStyle {
+                    FontWeight(.semibold)
+                    FontSize(12)
+                    ForegroundColor(.white.opacity(0.95))
+                    FontFamilyVariant(.monospaced)
+                }
+                .padding(.bottom, 3)
+        }
+        .heading3 { configuration in
+            configuration.label
+                .markdownTextStyle {
+                    FontWeight(.medium)
+                    FontSize(11)
+                    ForegroundColor(.white.opacity(0.9))
+                    FontFamilyVariant(.monospaced)
+                }
+                .padding(.bottom, 2)
+        }
+        .paragraph { configuration in
+            configuration.label
+                .padding(.vertical, 1)
+        }
+        .listItem { configuration in
+            configuration.label
+                .markdownMargin(top: 1, bottom: 1)
+        }
+        .codeBlock { configuration in
+            PiCodeBlockView(configuration: configuration)
+        }
+        .blockquote { configuration in
+            HStack(spacing: 0) {
+                Rectangle()
+                    .fill(Color.white.opacity(0.3))
+                    .frame(width: 2)
+                configuration.label
+                    .markdownTextStyle {
+                        ForegroundColor(.white.opacity(0.7))
+                        FontSize(10)
+                        FontFamilyVariant(.monospaced)
+                    }
+                    .padding(.leading, 6)
+            }
+            .padding(.vertical, 2)
+        }
         .code {
             FontFamilyVariant(.monospaced)
             FontSize(11) // Increased from 10

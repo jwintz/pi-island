@@ -9,6 +9,8 @@ navigation:
   order: 0
 ---
 
+![[Assets/Landing-1.png]]
+
 Pi Island is a native macOS application that provides a dynamic island interface for interacting with the [Pi coding agent](https://github.com/badlogic/pi-mono). It lives in the notch area of your MacBook and provides:
 
 - Real-time session monitoring with visual activity indicators

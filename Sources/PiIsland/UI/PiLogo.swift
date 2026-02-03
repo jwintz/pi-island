@@ -58,17 +58,15 @@ struct PiLogo: View {
     var bounce: Bool = false     // One-time bounce when response is ready
     var color: Color = .white
 
-    @State private var bouncePhase: CGFloat = 0
+    @State private var bounceScale: CGFloat = 1.0
 
     var body: some View {
         PiLogoShape()
             .fill(color.opacity(effectiveOpacity), style: FillStyle(eoFill: true))
             .frame(width: size, height: size)
-            .scaleEffect(effectiveScale)
-            .offset(y: bounceOffset)
+            .scaleEffect(effectiveScale * bounceScale)
             .animation(effectiveAnimation, value: isAnimating)
             .animation(effectiveAnimation, value: isPulsing)
-            .animation(.spring(response: 0.4, dampingFraction: 0.5), value: bouncePhase)
             .onChange(of: bounce) { _, shouldBounce in
                 if shouldBounce {
                     performBounce()
@@ -92,11 +90,6 @@ struct PiLogo: View {
         return 1.0
     }
 
-    private var bounceOffset: CGFloat {
-        // Subtle bounce - goes down slightly then back up
-        bouncePhase * size * 0.15
-    }
-
     private var effectiveAnimation: Animation {
         if isAnimating {
             return .easeInOut(duration: 0.6).repeatForever(autoreverses: true)
@@ -107,15 +100,15 @@ struct PiLogo: View {
     }
 
     private func performBounce() {
-        // Subtle down phase
-        withAnimation(.spring(response: 0.15, dampingFraction: 0.7)) {
-            bouncePhase = 1.0
+        // Quick scale up
+        withAnimation(.spring(response: 0.12, dampingFraction: 0.5)) {
+            bounceScale = 1.3
         }
 
-        // Return to original position after short delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.6)) {
-                bouncePhase = 0
+        // Scale back down with bounce
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.4)) {
+                bounceScale = 1.0
             }
         }
     }

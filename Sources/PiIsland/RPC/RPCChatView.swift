@@ -584,15 +584,19 @@ private struct UserBubble: View {
     let text: String
 
     var body: some View {
-        HStack {
+        HStack(alignment: .top, spacing: 6) {
             Spacer(minLength: 40)
             Text(text)
-                .font(.system(size: 11))
+                .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(Color.blue.opacity(0.6))
                 .clipShape(.rect(cornerRadius: 12))
+            Circle()
+                .fill(Color.blue)
+                .frame(width: 6, height: 6)
+                .padding(.top, 5)
         }
     }
 }
@@ -613,12 +617,12 @@ private struct AssistantBubble: View {
                 Circle()
                     .fill(Color.white.opacity(0.6))
                     .frame(width: 6, height: 6)
-                    .padding(.top, 4)
+                    .padding(.top, 5)
 
                 VStack(alignment: .leading, spacing: 0) {
                     // Always use Markdown for syntax highlighting
                     Markdown(isExpanded || !isLong ? text : truncatedText)
-                        .markdownTheme(.piIsland)
+                        .markdownTheme(.piIslandMonospaced)
                 }
 
                 Spacer(minLength: 40)
@@ -628,7 +632,7 @@ private struct AssistantBubble: View {
                 Button(action: { withAnimation { isExpanded.toggle() } }) {
                     HStack(spacing: 4) {
                         Text(isExpanded ? "Show less" : "Show more")
-                            .font(.system(size: 10))
+                            .font(.system(size: 10, design: .monospaced))
                         Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                             .font(.system(size: 8))
                     }
@@ -1043,11 +1047,11 @@ private struct StreamingMessageView: View {
             Circle()
                 .fill(Color.blue)
                 .frame(width: 6, height: 6)
-                .padding(.top, 4)
+                .padding(.top, 5)
                 .opacity(0.8)
 
             Markdown(text)
-                .markdownTheme(.piIsland)
+                .markdownTheme(.piIslandMonospaced)
 
             // Cursor
             Rectangle()

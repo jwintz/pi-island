@@ -1,7 +1,6 @@
 ---
 title: Pi Island
 description: A native macOS dynamic island interface for the Pi coding agent
-layout: landing
 navigation: false
 ---
 
@@ -29,17 +28,31 @@ links:
 :::u-page-card
 ---
 spotlight: true
-class: col-span-3 lg:col-span-2
+class: col-span-3
 to: /guide/usage
 ---
 ::::noir-image
 ---
-src: /_raw/Assets/Screenshot1.png
-alt: Dynamic island interface in the macOS notch
-height: 240px
+src: /_raw/Assets/Landing-2.png
+alt: Pi Island dynamic island interface
+height: 320px
 ---
 ::::
 
+#title
+Dynamic Island for Pi
+
+#description
+A native macOS interface that lives in your **notch**. Monitor sessions, receive responses, and interact with Pi - all without leaving your current workflow.
+:::
+
+:::u-page-card
+---
+spotlight: true
+class: col-span-3 lg:col-span-1
+to: /guide/usage
+icon: i-lucide-layout-template
+---
 #title
 Always There
 
@@ -52,20 +65,13 @@ Lives in your **notch**, expands on activity. A minimal, always-present session 
 spotlight: true
 class: col-span-3 lg:col-span-1
 to: /guide/usage
+icon: i-lucide-bell
 ---
-::::noir-image
----
-src: https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=800&q=80
-alt: Ambient notification pulse
-height: 240px
----
-::::
-
 #title
 Ambient Notifications
 
 #description
-Subtle **pulse animations** notify you when Pi responds. Stay in flow without distracting popups or sounds.
+Subtle **pulse animations** and bounce effects notify you when Pi responds. Stay in flow without distracting popups or sounds.
 :::
 
 :::u-page-card
@@ -73,15 +79,8 @@ Subtle **pulse animations** notify you when Pi responds. Stay in flow without di
 spotlight: true
 class: col-span-3 lg:col-span-1
 to: /architecture/file-watching
+icon: i-lucide-activity
 ---
-::::noir-image
----
-src: https://images.unsplash.com/photo-1558618666-fcd25c85cd64?auto=format&fit=crop&w=800&q=80
-alt: Real-time file system monitoring
-height: 240px
----
-::::
-
 #title
 Real-Time Monitoring
 
@@ -92,17 +91,10 @@ See processing states, **tool calls**, and file operations live. FSEvents integr
 :::u-page-card
 ---
 spotlight: true
-class: col-span-3 lg:col-span-2
+class: col-span-3 lg:col-span-1
 to: /architecture/sessions
+icon: i-lucide-layers
 ---
-::::noir-image
----
-src: https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&w=800&q=80
-alt: Multi-session management interface
-height: 240px
----
-::::
-
 #title
 Multi-Session Support
 
@@ -113,17 +105,10 @@ Monitor **multiple instances** and switch with a click. Keep track of parallel w
 :::u-page-card
 ---
 spotlight: true
-class: col-span-3 lg:col-span-2
+class: col-span-3 lg:col-span-1
 to: /guide/usage
+icon: i-lucide-message-square
 ---
-::::noir-image
----
-src: /_raw/Assets/Screenshot2.png
-alt: Rich chat interface with markdown rendering
-height: 240px
----
-::::
-
 #title
 Chat History
 
@@ -136,15 +121,8 @@ Full **Markdown rendering** and syntax highlighting support. Review previous con
 spotlight: true
 class: col-span-3 lg:col-span-1
 to: /architecture/overview
+icon: i-lucide-apple
 ---
-::::noir-image
----
-src: https://images.unsplash.com/photo-1531297484001-80022131f5a1?auto=format&fit=crop&w=800&q=80
-alt: Native Swift and SwiftUI application
-height: 240px
----
-::::
-
 #title
 Native SwiftUI
 
