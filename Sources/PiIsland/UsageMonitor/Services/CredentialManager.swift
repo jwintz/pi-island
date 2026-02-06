@@ -299,12 +299,27 @@ actor CredentialManager {
         credentials(for: provider) != nil
     }
 
-    /// Get access token for a provider
+    /// Get access token for a provider, refreshing if expired
     func accessToken(for provider: AIProvider) async -> String? {
+        // For OAuth providers, try to refresh expired tokens first
+        if let refreshedCreds = await OAuthTokenRefresher.shared.refreshIfNeeded(provider: provider) {
+            // Invalidate cache so next credentials() call picks up fresh data
+            cache.removeValue(forKey: provider)
+            cacheTimestamp = nil
+
+            // Special case: Copilot usage API (api.github.com) uses the GitHub OAuth
+            // token (stored as "refresh"), not the Copilot session token (stored as "access").
+            if provider == .copilot {
+                return refreshedCreds.refresh
+            }
+
+            return refreshedCreds.access
+        }
+
+        // Fallback: read from credentials (non-OAuth providers, or refresh not applicable)
         guard let creds = credentials(for: provider) else { return nil }
 
-        // Special case: Copilot uses the refresh token (GitHub OAuth) for API calls,
-        // not the access token (which is a Copilot session token)
+        // Special case: Copilot uses the GitHub OAuth token for the usage API
         if provider == .copilot {
             return creds["refresh"] as? String ??
                    creds["access"] as? String

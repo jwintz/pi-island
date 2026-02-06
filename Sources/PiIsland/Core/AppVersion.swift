@@ -11,7 +11,7 @@ import Foundation
 enum AppVersion {
     /// Hardcoded version - update this when releasing
     /// This is the fallback when not running from a bundled .app
-    private static let hardcodedVersion = "0.4.0"
+    private static let hardcodedVersion = "0.4.1"
 
     /// The current app version (e.g., "0.4.0")
     static var current: String {

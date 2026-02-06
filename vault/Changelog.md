@@ -8,11 +8,24 @@ order: 99
 
 All notable changes to Pi Island are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-:changelog-versions{:versions='[{"title":"Unreleased","description":""},{"title":"v0.4.0","date":"2026-02-05","description":"Usage Monitor with multi-provider support, battery optimizations","to":"https://github.com/jwintz/pi-island/releases/tag/v0.4.0"},{"title":"v0.3.0","date":"2026-02-03","description":"Bounce animation, update checker, slash commands, file references","to":"https://github.com/jwintz/pi-island/releases/tag/v0.3.0"},{"title":"v0.2.0","date":"2026-02-01","description":"Real-time session updates, terminal Pi detection","to":"https://github.com/jwintz/pi-island/releases/tag/v0.2.0"},{"title":"v0.1.0","date":"2026-01-31","description":"Initial release with RPC client, multi-session support, notch UI","to":"https://github.com/jwintz/pi-island/releases/tag/v0.1.0"}]'}
+:changelog-versions{:versions='[{"title":"Unreleased","description":""},{"title":"v0.4.1","date":"2026-02-06","description":"OAuth token auto-refresh for usage monitor","to":"https://github.com/jwintz/pi-island/releases/tag/v0.4.1"},{"title":"v0.4.0","date":"2026-02-05","description":"Usage Monitor with multi-provider support, battery optimizations","to":"https://github.com/jwintz/pi-island/releases/tag/v0.4.0"},{"title":"v0.3.0","date":"2026-02-03","description":"Bounce animation, update checker, slash commands, file references","to":"https://github.com/jwintz/pi-island/releases/tag/v0.3.0"},{"title":"v0.2.0","date":"2026-02-01","description":"Real-time session updates, terminal Pi detection","to":"https://github.com/jwintz/pi-island/releases/tag/v0.2.0"},{"title":"v0.1.0","date":"2026-01-31","description":"Initial release with RPC client, multi-session support, notch UI","to":"https://github.com/jwintz/pi-island/releases/tag/v0.1.0"}]'}
 
 ---
 
 ## Unreleased
+
+---
+
+## v0.4.1 - 2026-02-06
+
+### Added
+- OAuth token auto-refresh for all OAuth providers (Anthropic, GitHub Copilot, Google Gemini CLI, Google Antigravity, OpenAI Codex)
+- OAuthTokenRefresher actor with file-locking coordination with Pi instances
+- Runtime extraction of OAuth client credentials from Pi's installed JS files (no credentials in sources)
+
+### Fixed
+- Fix usage monitor requiring `pi login` every time tokens expire
+- Fix credential cache not invalidating after token refresh
 
 ---
 

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-02-06
+
+### Added
+- OAuth token auto-refresh for all OAuth providers (Anthropic, GitHub Copilot, Google Gemini CLI, Google Antigravity, OpenAI Codex)
+- OAuthTokenRefresher actor with file-locking coordination with Pi instances
+- Runtime extraction of OAuth client credentials from Pi's installed JS files (no credentials in sources)
+
+### Fixed
+- Fix usage monitor requiring `pi login` every time tokens expire
+- Fix credential cache not invalidating after token refresh
+
 ## [0.4.0] - 2026-02-05
 
 ### Added
@@ -122,7 +133,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Non-activating floating panel behavior
 - Production .app bundle creation script with signing and DMG
 
-[Unreleased]: https://github.com/jwintz/pi-island/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/jwintz/pi-island/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/jwintz/pi-island/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/jwintz/pi-island/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/jwintz/pi-island/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/jwintz/pi-island/compare/v0.1.0...v0.2.0
