@@ -597,15 +597,14 @@ private struct UserBubble: View {
     let text: String
 
     var body: some View {
-        HStack(alignment: .top, spacing: 6) {
+        HStack(alignment: .top, spacing: 8) {
             Spacer(minLength: 40)
-            Text(text)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Color.blue.opacity(0.6))
-                .clipShape(.rect(cornerRadius: 12))
+            
+            // Text right-aligned (block position), SF Mono, no bubble/blockquote
+            Markdown(text)
+                .markdownTheme(.piIslandMonospaced)
+                
+            // Indicator dot on right
             Circle()
                 .fill(Color.blue)
                 .frame(width: 6, height: 6)
