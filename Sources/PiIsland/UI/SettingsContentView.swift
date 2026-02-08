@@ -11,7 +11,6 @@ import SwiftUI
 // MARK: - Settings Content View
 
 struct SettingsContentView: View {
-    let viewModel: NotchViewModel
     @AppStorage("launchAtLogin") private var launchAtLogin = false
     @AppStorage("showInDock") private var showInDock = false
 
@@ -25,12 +24,6 @@ struct SettingsContentView: View {
 
                 Spacer()
             }
-
-            Divider()
-                .background(Color.white.opacity(0.1))
-
-            // Status Legend
-            StatusColorsLegend()
 
             Divider()
                 .background(Color.white.opacity(0.1))
@@ -158,37 +151,5 @@ struct SettingsToggleRow: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .contentShape(Rectangle())
-    }
-}
-
-// MARK: - Status Legend
-
-struct StatusColorsLegend: View {
-    private static let items: [(Color, String)] = [
-        (.green, "Idle"),
-        (.blue, "Thinking"),
-        (.cyan, "Running"),
-        (.yellow, "Active"),
-        (.orange, "Starting"),
-        (.red, "Error"),
-    ]
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(Array(Self.items.enumerated()), id: \.offset) { index, item in
-                if index > 0 {
-                    Spacer(minLength: 0)
-                }
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(item.0)
-                        .frame(width: 5, height: 5)
-                    Text(item.1)
-                        .font(.system(size: 9))
-                        .foregroundStyle(.white.opacity(0.5))
-                }
-            }
-        }
-        .frame(maxWidth: .infinity)
     }
 }

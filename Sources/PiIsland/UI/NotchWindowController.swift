@@ -43,13 +43,20 @@ class NotchWindowController: NSWindowController {
 
         notchWindow.setFrame(windowFrame, display: true)
 
+        // Escape key closes the notch
+        notchWindow.onEscapePressed = { [weak viewModel] in
+            guard let viewModel, viewModel.status == .opened else { return }
+            viewModel.notchClose()
+        }
+
         // Toggle mouse event handling based on notch state
         viewModel.onStatusChange = { [weak notchWindow, weak viewModel] status in
             switch status {
             case .opened:
                 notchWindow?.ignoresMouseEvents = false
-                // Make window key and order front for input
+                // Make window key and activate app for input and tooltips
                 if viewModel?.openReason != .notification {
+                    NSApp.activate()
                     notchWindow?.makeKeyAndOrderFront(nil)
                 }
             case .closed, .hint:
@@ -125,6 +132,9 @@ class NotchWindowController: NSWindowController {
 // MARK: - NotchPanel
 
 class NotchPanel: NSPanel {
+    /// Callback invoked when the Escape key is pressed while the panel is key
+    var onEscapePressed: (() -> Void)?
+
     override init(
         contentRect: NSRect,
         styleMask style: NSWindow.StyleMask,
@@ -163,6 +173,10 @@ class NotchPanel: NSPanel {
 
         isReleasedWhenClosed = true
         acceptsMouseMovedEvents = false
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        onEscapePressed?()
     }
 
     override var canBecomeKey: Bool { true }

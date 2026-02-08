@@ -7,24 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-02-08
+
+### Added
+- Inline "No active sessions" guidance when no live sessions exist
+- Hover feedback on session rows (brightened background on mouse over)
+- Tooltips on header buttons (usage toggle, settings)
+- Escape key closes the notch
+- Divider above historical sessions section for visual separation
+- Token/cost stats footer below chat input bar
+
 ### Changed
 - Preserve usage view state when leaving and reentering the notch
-- Move model selector from notch header to session body header
-- Make session/usage toggle always visible with icon reflecting current state (chart for sessions, list for usage)
-- Split NotchView.swift (962 lines) into NotchView, SessionsListView, and SettingsContentView
-- Replace onTapGesture with Button on session rows for proper accessibility
+- Move model selector from notch header to chat body header
+- Make session/usage toggle always visible with icon reflecting current state
+- Split NotchView.swift into NotchView, SessionsListView, and SettingsContentView
+- Replace onTapGesture with Button on session rows for accessibility
 - Replace showsIndicators parameter with .scrollIndicators(.hidden) modifier
 - Replace lowercased().contains() with localizedStandardContains() for session search
 - Replace DispatchQueue.main.asyncAfter with structured Task.sleep in view handlers
 - Extract duplicated back-button into NotchBackButton component
 - Cache RelativeDateTimeFormatter as static property instead of allocating per row
 - Cache filtered session lists in @State with onChange instead of recomputing in body
-- Change injected viewModel from var to let in NotchView, SessionsListView, SettingsContentView
+- Change injected viewModel from var to let in view structs
+- Move status color legend from settings to sessions list footer
+- Move token/cost display from chat header to footer below input
+- Center usage monitor "Updated" footer text
+- Use consistent "Sessions" label on all back buttons
+- Only show search bar when session count exceeds threshold
+- Reduce settings panel height to match content
+- Activate application when notch opens for tooltip and keyboard support
 
 ### Removed
-- Delete unused SettingsView.swift (superseded by SettingsContentView in the notch)
+- Delete unused SettingsView.swift (superseded by SettingsContentView)
 - Delete dead ActivityIndicator, PulseDot, and ProcessingSpinner views
 - Remove unused Combine import from NotchView
+- Remove status legend and viewModel dependency from SettingsContentView
+- Remove commented-out debug print statements
 
 ## [0.4.1] - 2026-02-06
 
@@ -152,7 +171,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Non-activating floating panel behavior
 - Production .app bundle creation script with signing and DMG
 
-[Unreleased]: https://github.com/jwintz/pi-island/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/jwintz/pi-island/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/jwintz/pi-island/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/jwintz/pi-island/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/jwintz/pi-island/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/jwintz/pi-island/compare/v0.2.0...v0.3.0

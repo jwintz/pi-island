@@ -7,6 +7,9 @@
 
 import SwiftUI
 
+/// Minimum number of sessions before the search bar is shown
+private let searchBarThreshold = 5
+
 // MARK: - Sessions List View
 
 struct SessionsListView: View {
@@ -15,6 +18,10 @@ struct SessionsListView: View {
     @State private var searchText = ""
     @State private var filteredLive: [ManagedSession] = []
     @State private var filteredHistorical: [ManagedSession] = []
+
+    private var totalSessionCount: Int {
+        sessionManager.liveSessions.count + sessionManager.historicalSessions.count
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -40,77 +47,42 @@ struct SessionsListView: View {
                     .foregroundStyle(.white.opacity(0.5))
             }
 
-            // Search bar
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.4))
+            // Search bar (hidden when few sessions)
+            if totalSessionCount >= searchBarThreshold {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.4))
 
-                TextField("Search sessions...", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white)
+                    TextField("Search sessions...", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white)
 
-                if !searchText.isEmpty {
-                    Button(action: { searchText = "" }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.white.opacity(0.4))
+                    if !searchText.isEmpty {
+                        Button(action: { searchText = "" }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.white.opacity(0.4))
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(Color.white.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(Color.white.opacity(0.08))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
 
             Divider()
                 .background(Color.white.opacity(0.1))
 
             // Session list
-            ScrollView(.vertical) {
-                LazyVStack(spacing: 6) {
-                    // Live sessions first (at top)
-                    ForEach(filteredLive) { session in
-                        Button {
-                            viewModel.showChat(for: session)
-                        } label: {
-                            SessionRowView(
-                                session: session,
-                                isSelected: session.id == sessionManager.selectedSessionId,
-                                onStop: { stopSession(session) }
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
+            sessionList
 
-                    // Historical sessions
-                    if !filteredHistorical.isEmpty {
-                        Text(searchText.isEmpty ? "Recent" : "Results")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.4))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.top, 8)
-
-                        ForEach(filteredHistorical) { session in
-                            Button {
-                                resumeHistoricalSession(session)
-                            } label: {
-                                SessionRowView(
-                                    session: session,
-                                    isSelected: false,
-                                    onDelete: { deleteSession(session) }
-                                )
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-                .padding(.vertical, 8)
-            }
-            .scrollIndicators(.hidden)
-            .frame(maxHeight: .infinity)
+            // Status legend footer
+            StatusColorsLegend()
+                .padding(.bottom, 4)
         }
         .padding(.top, 8)
         .frame(maxHeight: .infinity, alignment: .top)
@@ -127,6 +99,79 @@ struct SessionsListView: View {
         .onChange(of: sessionManager.historicalSessions) { _, _ in
             updateFilteredSessions()
         }
+    }
+
+    // MARK: - Session List
+
+    private var sessionList: some View {
+        ScrollView(.vertical) {
+            LazyVStack(spacing: 6) {
+                // No active sessions message
+                if filteredLive.isEmpty && searchText.isEmpty {
+                    HStack(spacing: 8) {
+                        Image(systemName: "tray")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.white.opacity(0.25))
+
+                        Text("No active sessions")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.white.opacity(0.35))
+
+                        Spacer()
+
+                        Text("Run pi or tap +")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.white.opacity(0.25))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(Color.white.opacity(0.03))
+                    .clipShape(.rect(cornerRadius: 8))
+                }
+
+                // Live sessions
+                ForEach(filteredLive) { session in
+                    Button {
+                        viewModel.showChat(for: session)
+                    } label: {
+                        SessionRowView(
+                            session: session,
+                            isSelected: session.id == sessionManager.selectedSessionId,
+                            onStop: { stopSession(session) }
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                // Historical sessions
+                if !filteredHistorical.isEmpty {
+                    Divider()
+                        .background(Color.white.opacity(0.1))
+                        .padding(.top, 4)
+
+                    Text(searchText.isEmpty ? "Recent" : "Results")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.4))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    ForEach(filteredHistorical) { session in
+                        Button {
+                            resumeHistoricalSession(session)
+                        } label: {
+                            SessionRowView(
+                                session: session,
+                                isSelected: false,
+                                onDelete: { deleteSession(session) }
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(.vertical, 8)
+        }
+        .scrollIndicators(.hidden)
+        .frame(maxHeight: .infinity)
     }
 
     // MARK: - Filtering
@@ -216,11 +261,19 @@ struct SessionRowView: View {
     var onStop: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
 
+    @State private var isHovering = false
+
     private static let relativeDateFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
         f.unitsStyle = .abbreviated
         return f
     }()
+
+    private var rowBackground: Double {
+        if isHovering { return 0.15 }
+        if isSelected { return 0.12 }
+        return 0.06
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -277,8 +330,11 @@ struct SessionRowView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(isSelected ? Color.white.opacity(0.12) : Color.white.opacity(0.06))
+        .background(Color.white.opacity(rowBackground))
         .clipShape(.rect(cornerRadius: 10))
+        .onHover { hovering in
+            isHovering = hovering
+        }
     }
 
     private var phaseColor: Color {
@@ -298,5 +354,37 @@ struct SessionRowView: View {
         case .executing: return .cyan
         case .error: return .red
         }
+    }
+}
+
+// MARK: - Status Legend
+
+struct StatusColorsLegend: View {
+    private static let items: [(Color, String)] = [
+        (.green, "Idle"),
+        (.blue, "Thinking"),
+        (.cyan, "Running"),
+        (.yellow, "Active"),
+        (.orange, "Starting"),
+        (.red, "Error"),
+    ]
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(Self.items.enumerated()), id: \.offset) { index, item in
+                if index > 0 {
+                    Spacer(minLength: 0)
+                }
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(item.0)
+                        .frame(width: 5, height: 5)
+                    Text(item.1)
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
     }
 }

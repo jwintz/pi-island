@@ -252,7 +252,7 @@ struct NotchView: View {
                     viewModel.exitChat()
                 }
             } else if case .settings = viewModel.contentType {
-                NotchBackButton(title: "Back") {
+                NotchBackButton(title: "Sessions") {
                     viewModel.exitSettings()
                 }
             }
@@ -278,6 +278,7 @@ struct NotchView: View {
             }
             .buttonStyle(.plain)
             .contentShape(Rectangle())
+            .help(isUsageView ? "Sessions" : "Usage Monitor")
 
             // Settings button
             Button {
@@ -294,6 +295,7 @@ struct NotchView: View {
             }
             .buttonStyle(.plain)
             .contentShape(Rectangle())
+            .help("Settings")
         }
         .padding(.leading, 4)
     }
@@ -309,7 +311,7 @@ struct NotchView: View {
             case .chat(let session):
                 SessionChatView(session: session)
             case .settings:
-                SettingsContentView(viewModel: viewModel)
+                SettingsContentView()
             case .usage:
                 UsageNotchView()
             }

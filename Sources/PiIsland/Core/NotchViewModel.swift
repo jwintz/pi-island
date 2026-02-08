@@ -88,7 +88,7 @@ class NotchViewModel {
         case .settings:
             return CGSize(
                 width: min(screenRect.width * 0.4, 400),
-                height: 280
+                height: 220
             )
         case .usage:
             return CGSize(
@@ -186,14 +186,9 @@ class NotchViewModel {
 
         sessionManager.onSessionResumed = { [weak self] oldSession, newSession in
             guard let self = self else { return }
-            // print("[DEBUG] onSessionResumed: old=\(oldSession.id), new=\(newSession.id), newMessages=\(newSession.messages.count)")
-            // If we're viewing the old session, switch to the new live one
             if case .chat(let current) = self.contentType, current.id == oldSession.id {
-                // print("[DEBUG] Switching contentType from old to new session")
                 self.contentType = .chat(newSession)
                 self.currentChatSession = newSession
-            } else {
-                // print("[DEBUG] Not switching - current contentType doesn't match old session")
             }
         }
     }
@@ -399,16 +394,12 @@ class NotchViewModel {
     }
 
     func showChat(for session: ManagedSession) {
-        // print("[DEBUG] showChat called for: \(session.projectName), id=\(session.id), messages=\(session.messages.count)")
         if case .chat(let current) = contentType, current.id == session.id {
-            // print("[DEBUG] Already showing this session")
             return
         }
-        // Clear unread state when viewing session
         clearUnread(for: session)
         contentType = .chat(session)
         sessionManager.selectedSessionId = session.id
-        // print("[DEBUG] contentType set to chat(\(session.id))")
     }
 
     func exitChat() {

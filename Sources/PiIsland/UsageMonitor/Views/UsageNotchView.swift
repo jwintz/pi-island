@@ -62,6 +62,7 @@ struct UsageNotchView: View {
                 Text("Updated \(timeAgo(lastUpdate))")
                     .font(.system(size: 10))
                     .foregroundStyle(.white.opacity(0.4))
+                    .frame(maxWidth: .infinity)
             }
         }
         .padding(.top, 8)
@@ -134,10 +135,7 @@ struct ProviderUsageCard: View, Equatable {
         .padding(10)
         .background(Color.white.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 8))
-        .onAppear {
-             // Keep debug logging for verification, can be removed later
-             // print("[UsageMonitor] Card appeared: \(snapshot.displayName)")
-        }
+
     }
 }
 

@@ -8,11 +8,41 @@ order: 99
 
 All notable changes to Pi Island are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-:changelog-versions{:versions='[{"title":"Unreleased","description":""},{"title":"v0.4.1","date":"2026-02-06","description":"OAuth token auto-refresh for usage monitor","to":"https://github.com/jwintz/pi-island/releases/tag/v0.4.1"},{"title":"v0.4.0","date":"2026-02-05","description":"Usage Monitor with multi-provider support, battery optimizations","to":"https://github.com/jwintz/pi-island/releases/tag/v0.4.0"},{"title":"v0.3.0","date":"2026-02-03","description":"Bounce animation, update checker, slash commands, file references","to":"https://github.com/jwintz/pi-island/releases/tag/v0.3.0"},{"title":"v0.2.0","date":"2026-02-01","description":"Real-time session updates, terminal Pi detection","to":"https://github.com/jwintz/pi-island/releases/tag/v0.2.0"},{"title":"v0.1.0","date":"2026-01-31","description":"Initial release with RPC client, multi-session support, notch UI","to":"https://github.com/jwintz/pi-island/releases/tag/v0.1.0"}]'}
+:changelog-versions{:versions='[{"title":"Unreleased","description":""},{"title":"v0.5.0","date":"2026-02-08","description":"Notch UI overhaul: layout consistency, accessibility, performance","to":"https://github.com/jwintz/pi-island/releases/tag/v0.5.0"},{"title":"v0.4.1","date":"2026-02-06","description":"OAuth token auto-refresh for usage monitor","to":"https://github.com/jwintz/pi-island/releases/tag/v0.4.1"},{"title":"v0.4.0","date":"2026-02-05","description":"Usage Monitor with multi-provider support, battery optimizations","to":"https://github.com/jwintz/pi-island/releases/tag/v0.4.0"},{"title":"v0.3.0","date":"2026-02-03","description":"Bounce animation, update checker, slash commands, file references","to":"https://github.com/jwintz/pi-island/releases/tag/v0.3.0"},{"title":"v0.2.0","date":"2026-02-01","description":"Real-time session updates, terminal Pi detection","to":"https://github.com/jwintz/pi-island/releases/tag/v0.2.0"},{"title":"v0.1.0","date":"2026-01-31","description":"Initial release with RPC client, multi-session support, notch UI","to":"https://github.com/jwintz/pi-island/releases/tag/v0.1.0"}]'}
 
 ---
 
 ## Unreleased
+
+---
+
+## v0.5.0 - 2026-02-08
+
+### Added
+- Inline "No active sessions" guidance when no live sessions exist
+- Hover feedback on session rows
+- Tooltips on header buttons (usage toggle, settings)
+- Escape key closes the notch
+- Divider above historical sessions section
+- Token/cost stats footer below chat input bar
+
+### Changed
+- Preserve usage view state when leaving and reentering the notch
+- Move model selector from notch header to chat body header
+- Make session/usage toggle always visible with icon reflecting current state
+- Split NotchView.swift into NotchView, SessionsListView, and SettingsContentView
+- Replace onTapGesture with Button on session rows for accessibility
+- Move status color legend from settings to sessions list footer
+- Move token/cost display from chat header to footer below input
+- Use consistent "Sessions" label on all back buttons
+- Only show search bar when session count exceeds threshold
+- Reduce settings panel height to match content
+- Activate application when notch opens for tooltip and keyboard support
+- Cache filtered session lists and formatters for performance
+
+### Removed
+- Delete unused SettingsView.swift, dead view structs, commented-out debug prints
+- Remove unused Combine import and viewModel dependency from SettingsContentView
 
 ---
 

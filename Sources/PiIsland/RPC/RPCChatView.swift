@@ -113,6 +113,9 @@ struct SessionChatView: View {
                     inputBar
                 }
             }
+
+            // Token/cost footer
+            statsFooter
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .onChange(of: inputText) { _, newValue in
@@ -133,7 +136,7 @@ struct SessionChatView: View {
 
     private var chatHeader: some View {
         HStack(spacing: 12) {
-            // Status indicator (replaces chevron)
+            // Status indicator
             Circle()
                 .fill(phaseColor)
                 .frame(width: 8, height: 8)
@@ -157,27 +160,32 @@ struct SessionChatView: View {
                     .background(Color.white.opacity(0.08))
                     .clipShape(.rect(cornerRadius: 6))
             }
-
-            // Token/cost display
-            if let stats = session.sessionStats {
-                HStack(spacing: 8) {
-                    // Tokens
-                    HStack(spacing: 3) {
-                        Image(systemName: "text.word.spacing")
-                            .font(.system(size: 9))
-                        Text(stats.formattedTokens)
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
-                    }
-                    .foregroundStyle(.white.opacity(0.5))
-
-                    // Cost
-                    Text(stats.formattedCost)
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.green.opacity(0.7))
-                }
-            }
         }
         .padding(.vertical, 12)
+    }
+
+    @ViewBuilder
+    private var statsFooter: some View {
+        if let stats = session.sessionStats {
+            HStack(spacing: 8) {
+                Spacer()
+
+                HStack(spacing: 3) {
+                    Image(systemName: "text.word.spacing")
+                        .font(.system(size: 9))
+                    Text(stats.formattedTokens)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                }
+                .foregroundStyle(.white.opacity(0.4))
+
+                Text(stats.formattedCost)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.green.opacity(0.6))
+
+                Spacer()
+            }
+            .padding(.bottom, 4)
+        }
     }
 
     private var commandCompletionView: some View {
